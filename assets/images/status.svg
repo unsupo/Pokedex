@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60">
+    <defs>
+        <path id="s-shape" d="M 50 0 C 60 10, 60 20, 50 30 S 40 50, 50 60"/>
+    </defs>
+    <g transform="rotate(160 50 30)">
+    <ellipse cx="50" cy="30" rx="40" ry="30" stroke="black" fill="none"/>
+    <clipPath id="right-half">
+        <use href="#s-shape"/>
+        <rect x="0" y="0" width="50" height="60"/>
+    </clipPath>
+    <ellipse cx="50" cy="30" rx="40" ry="30" clip-path="url(#right-half)"/>
+    </g>
+</svg>

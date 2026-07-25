@@ -29,7 +29,7 @@ class MovesTable extends StatefulWidget {
 
 class _MovesTableState extends State<MovesTable> {
   String? _selectedGame;
-  List<String?> _gameVersions = []; // To store the available game versions
+  List<String> _gameVersions = []; // To store the available game versions
   bool _isLoading = true; // Add a loading state
 
   @override
@@ -51,8 +51,11 @@ class _MovesTableState extends State<MovesTable> {
     final allVersions = widget.moves.expand<Species?>((moveName) =>
         moveName.versionGroupDetails?.map((detail) => detail.versionGroup) ??
         []);
-    _gameVersions =
-        allVersions.map((version) => version?.name).toSet().toList();
+    _gameVersions = allVersions
+        .map((version) => version?.name)
+        .whereType<String>() // Drop null names so .sort() never sees a null
+        .toSet()
+        .toList();
     _gameVersions.sort(); // Sort alphabetically
   }
 
@@ -73,10 +76,10 @@ class _MovesTableState extends State<MovesTable> {
               _selectedGame = newValue;
             });
           },
-          items: _gameVersions.map((String? version) {
+          items: _gameVersions.map((String version) {
             return DropdownMenuItem<String>(
               value: version,
-              child: Text(version!),
+              child: Text(version),
             );
           }).toList(),
         ),
@@ -250,9 +253,11 @@ class _MovesTableState extends State<MovesTable> {
     return filteredMoves;
   }
 
-  int _getLevelLearnedAsInt(int id,
+  int _getLevelLearnedAsInt(int? id,
       List<VersionGroupDetail> versionGroupDetails, MoveLearnMethodType type) {
-    if (!widget.allMoves.containsKey(id) || widget.allMoves[id] == null) {
+    if (id == null ||
+        !widget.allMoves.containsKey(id) ||
+        widget.allMoves[id] == null) {
       return -1;
     }
 
@@ -260,6 +265,11 @@ class _MovesTableState extends State<MovesTable> {
       (detail) => detail.moveLearnMethod?.name == moveLearnMethodNames[type],
       orElse: () => VersionGroupDetail(levelLearnedAt: -1),
     );
+
+    if (type == MoveLearnMethodType.levelUp) {
+      // The Level-Up column should read the level-up detail, not machine data.
+      return levelUpDetail.levelLearnedAt ?? -1;
+    }
 
     final move =
         widget.allMoves[id]!; // Safe to use! here because of the check above
@@ -269,23 +279,23 @@ class _MovesTableState extends State<MovesTable> {
       return -1; // Or another appropriate default value
     }
 
-    // Find the correct MachineVersionDetail.  This is the key change!
+    // Find the MachineVersionDetail for the currently selected game, if any.
     final machineVersionDetail = move.machines!.firstWhere(
-      (detail) => /* Add your condition here to select the correct MachineVersionDetail */
-          true,
+      (detail) =>
+          _selectedGame == null || detail.versionGroup?.name == _selectedGame,
       orElse: () => MachineVersionDetail(), // Provide a default
     );
 
     // Now you can safely access machine
-    return MoveLearnMethodType.levelUp == type
-        ? levelUpDetail.levelLearnedAt ?? -1
-        : machineVersionDetail.machine?.id ??
-            -1; // Use?. in case machine is still null
+    return machineVersionDetail.machine?.id ??
+        -1; // Use?. in case machine is still null
   }
 
-  String _getLevelLearned(int id, List<VersionGroupDetail>? versionGroupDetails,
-      MoveLearnMethodType type) {
-    if (!widget.allMoves.containsKey(id) || widget.allMoves[id] == null) {
+  String _getLevelLearned(int? id,
+      List<VersionGroupDetail>? versionGroupDetails, MoveLearnMethodType type) {
+    if (id == null ||
+        !widget.allMoves.containsKey(id) ||
+        widget.allMoves[id] == null) {
       return '-';
     }
     if (versionGroupDetails == null || versionGroupDetails.isEmpty) {
@@ -296,6 +306,11 @@ class _MovesTableState extends State<MovesTable> {
       orElse: () => VersionGroupDetail(),
     );
 
+    if (type == MoveLearnMethodType.levelUp) {
+      // The Level-Up column should read the level-up detail, not machine data.
+      return levelUpDetail.levelLearnedAt?.toString() ?? '-';
+    }
+
     final move =
         widget.allMoves[id]!; // Safe to use! here because of the check above
 
@@ -304,15 +319,14 @@ class _MovesTableState extends State<MovesTable> {
       return '-';
     }
 
+    // Find the MachineVersionDetail for the currently selected game, if any.
     final machineVersionDetail = move.machines!.firstWhere(
-      (detail) => /* Add your condition here to select the correct MachineVersionDetail */
-          true,
+      (detail) =>
+          _selectedGame == null || detail.versionGroup?.name == _selectedGame,
       orElse: () => MachineVersionDetail(), // Provide a default
     );
 
-    return MoveLearnMethodType.levelUp == type
-        ? levelUpDetail.levelLearnedAt?.toString() ?? '-'
-        : '${machineVersionDetail.machine?.id ?? '-'}'; // Use?. here
+    return '${machineVersionDetail.machine?.id ?? '-'}'; // Use?. here
   }
 
   Widget _buildCategoryCell(String? category) {

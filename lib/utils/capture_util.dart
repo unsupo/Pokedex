@@ -1,5 +1,4 @@
 import 'dart:math';
-import 'dart:math';
 
 class CaptureCalculator {
   /// Calculates the probability of capturing a Pokémon based on the given parameters.
@@ -10,12 +9,12 @@ class CaptureCalculator {
   /// [captureRate]: The capture rate of the Pokémon species.
   /// [ballBonus]: The catch rate multiplier of the Poké Ball used.
   /// [statusBonus]: The catch rate multiplier for the status condition (e.g., sleep, paralysis).
-  /// [level]: (Optional, Gen I only) The level of the opposing Pokémon.
-  /// [opponentStatusBonus]: (Optional, Gen I only) The status multiplier of the opposing Pokémon.
-  /// [numBadges]: (Optional, Gen 9 only) The number of Gym Badges the player has.
-  /// [hasCatchingCharm]: (Optional, Gen 9 only) Whether the player has the Catching Charm.
-  /// [catchingPowerLevel]: (Optional, Gen 9 only) The level of Catching Power (0-3).
-  /// [pokedexEntries]: (Optional, Gen 9 only) The number of registered pokedex entries.
+  /// [level]: (Required, Gen I only) The level of the opposing Pokémon.
+  /// [opponentStatusBonus]: (Required, Gen I only) The status multiplier of the opposing Pokémon.
+  /// [numBadges]: (Required, Gen 9 only) The number of Gym Badges the player has.
+  /// [hasCatchingCharm]: (Required, Gen 9 only) Whether the player has the Catching Charm.
+  /// [catchingPowerLevel]: (Required, Gen 9 only) The level of Catching Power (0-3).
+  /// [pokedexEntries]: (Required, Gen 9 only) The number of registered pokedex entries.
   ///
   /// Returns a double representing the probability of capture (0.0 to 1.0).
   static double calculateCaptureProbability({
@@ -36,15 +35,24 @@ class CaptureCalculator {
       throw ArgumentError('Invalid generation. Generation must be between 1 and 9.');
     }
 
+    if (currentHp < 0 || currentHp > maxHp) {
+      throw ArgumentError(
+          'Invalid currentHp: $currentHp. Must satisfy 0 <= currentHp <= maxHp ($maxHp).');
+    }
+
     if (generation == 1) {
+      if (level == null || opponentStatusBonus == null) {
+        throw ArgumentError(
+            'Generation 1 requires both level and opponentStatusBonus to be provided.');
+      }
       return _calculateGen1CaptureProbability(
         maxHp: maxHp,
         currentHp: currentHp,
         captureRate: captureRate,
         ballBonus: ballBonus,
         statusBonus: statusBonus,
-        level: level!,
-        opponentStatusBonus: opponentStatusBonus!,
+        level: level,
+        opponentStatusBonus: opponentStatusBonus,
       );
     } else if (generation == 2) {
       return _calculateGen2CaptureProbability(
@@ -87,16 +95,23 @@ class CaptureCalculator {
         statusBonus: statusBonus,
       );
     } else if (generation == 9) {
+      if (numBadges == null ||
+          hasCatchingCharm == null ||
+          catchingPowerLevel == null ||
+          pokedexEntries == null) {
+        throw ArgumentError(
+            'Generation 9 requires numBadges, hasCatchingCharm, catchingPowerLevel, and pokedexEntries to be provided.');
+      }
       return _calculateGen9CaptureProbability(
         maxHp: maxHp,
         currentHp: currentHp,
         captureRate: captureRate,
         ballBonus: ballBonus,
         statusBonus: statusBonus,
-        numBadges: numBadges!,
-        hasCatchingCharm: hasCatchingCharm!,
-        catchingPowerLevel: catchingPowerLevel!,
-        pokedexEntries: pokedexEntries!,
+        numBadges: numBadges,
+        hasCatchingCharm: hasCatchingCharm,
+        catchingPowerLevel: catchingPowerLevel,
+        pokedexEntries: pokedexEntries,
       );
     }
 
@@ -114,6 +129,24 @@ class CaptureCalculator {
     required double opponentStatusBonus,
   }) {
     //Formula from https://www.dragonflycave.com/mechanics/gen-i-capturing
+    //
+    //CONFIRMED via source (WebFetch of the page above, 2026-07-24): in Gen I
+    //the status-based auto-capture check is a *separate, independent* step
+    //that happens *before* (and regardless of) the catch-rate/HP-based check.
+    //Quote: "Subtract S from R1 (to avoid confusion with the original R1, I
+    //will refer to the result as R*). If R* is less than zero (i.e. if the
+    //generated R1 was less than S), the Pokémon is successfully caught." R1
+    //is a uniformly random roll from 0-255 (256 possible values), and this
+    //auto-capture check does NOT depend on the Pokémon's catch rate at all.
+    //
+    //The previous implementation summed statusValue directly into the
+    //catch-rate-based formula *before* the >=255 guaranteed-catch check, i.e.
+    //it treated status as boosting the same deterministic threshold used for
+    //the HP/catch-rate check. That conflates two independent mechanics. The
+    //fix below evaluates the status-triggered auto-capture as its own
+    //probability (statusValue / 256), then combines it with the catch-rate
+    //based probability the way two independent sequential "catch checks" are
+    //supposed to combine: P = P(status) + (1 - P(status)) * P(rate).
     int statusValue;
     if (statusBonus == 2.0) {
       // Sleep or Frozen
@@ -125,19 +158,24 @@ class CaptureCalculator {
       statusValue = 0;
     }
 
-    double captureChance =
-        ((3 * maxHp - 2 * currentHp) * captureRate * ballBonus) / (3 * maxHp) +
-            statusValue;
+    //P(R1 < S) out of the 256 possible values (0-255) of R1.
+    double statusAutoCatchProbability = statusValue / 256.0;
 
-    //Capture is guaranteed if the value is equal or higher to 255
-    if (captureChance >= 255) return 1.0;
+    double baseCaptureChance =
+        ((3 * maxHp - 2 * currentHp) * captureRate * ballBonus) / (3 * maxHp);
 
-    int shakeCheck = (65536 / pow(255 / captureChance, 0.75)).floor();
+    //Capture is guaranteed if the base (non-status) value is equal or higher than 255.
+    if (baseCaptureChance >= 255) return 1.0;
 
-    double p = shakeCheck / 65536; // Corrected: Removed .floor() here
+    int shakeCheck = (65536 / pow(255 / baseCaptureChance, 0.75)).floor();
+
+    double p = shakeCheck / 65536;
 
     //We are ignoring the Diversion against wild Ditto on Gen 1
-    return pow(p, 4).toDouble();
+    double rateBasedProbability = pow(p, 4).toDouble();
+
+    return statusAutoCatchProbability +
+        (1 - statusAutoCatchProbability) * rateBasedProbability;
   }
 
   static double _calculateGen2CaptureProbability({
@@ -148,6 +186,14 @@ class CaptureCalculator {
     required double statusBonus,
   }) {
     //Formula from https://www.dragonflycave.com/mechanics/gen-ii-capturing
+    //
+    //CONFIRMED via source (WebFetch of the page above, 2026-07-24): "X = max(
+    //((3M - 2H) * C) / (3M), 1) + S" - the status bonus S is added to the
+    //base term *before* the combined value X is capped/checked against 255
+    //("The final capture rate X can range from 1 to 255 (if it's higher than
+    //255 at the end of the calculation, it is made 255 instead)"). So, unlike
+    //Gen I, adding the status bonus BEFORE the >=255 guaranteed-catch check
+    //is the CORRECT order for Gen II and required no change here.
     int statusValue;
     if (statusBonus == 2.0) {
       // Sleep or Frozen
@@ -354,33 +400,4 @@ class CaptureCalculator {
 
     return criticalCaptureProbability + (1 - criticalCaptureProbability) * pow(p, 4);
   }
-}
-
-void main() {
-  // Example usage for Generation 9:
-  int generation = 9;
-  int maxHp = 100;
-  int currentHp = 25;
-  int captureRate = 45; // Example: Bulbasaur
-  double ballBonus = 1.0; // Example: Poké Ball
-  double statusBonus = 1.0; // Example: Sleep
-  int numBadges = 8;
-  bool hasCatchingCharm = false;
-  int catchingPowerLevel = 0;
-  int pokedexEntries = 0;
-
-  double probability = CaptureCalculator.calculateCaptureProbability(
-      generation: generation,
-      maxHp: maxHp,
-      currentHp: currentHp,
-      captureRate: captureRate,
-      ballBonus: ballBonus,
-      statusBonus: statusBonus,
-      numBadges: numBadges,
-      hasCatchingCharm: hasCatchingCharm,
-      catchingPowerLevel: catchingPowerLevel,
-      pokedexEntries: pokedexEntries
-  );
-
-  print('The probability of capturing the Pokémon is: ${probability * 100}%');
 }

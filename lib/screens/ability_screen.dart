@@ -17,8 +17,9 @@ class AbilityScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ability =
-        context.watch<PokemonApiProvider>().allAbilities[abilityId!];
+    final ability = abilityId == null
+        ? null
+        : context.watch<PokemonApiProvider>().allAbilities[abilityId];
     final pokemonList = context.watch<PokemonApiProvider>().allPokemon;
 
     if (ability == null) {
@@ -102,28 +103,34 @@ class AbilityScreen extends StatelessWidget {
 
   Widget _buildEffectText(Ability ability) {
     // Assuming English language for the effect description
-    final effectEntry = ability.effectEntries?.firstWhere(
-      (entry) => entry.language?.name == 'en',
-      orElse: () => VerboseEffect(
-        effect: 'Effect description not available.',
-        shortEffect: '',
-      ),
-    );
+    final entries = ability.effectEntries;
+    final effectEntry = entries == null || entries.isEmpty
+        ? null
+        : entries.firstWhere(
+            (entry) => entry.language?.name == 'en',
+            orElse: () => VerboseEffect(
+              effect: 'No description available.',
+              shortEffect: 'No description available.',
+            ),
+          );
 
-    return Text(effectEntry!.shortEffect!);
+    return Text(effectEntry?.shortEffect ?? 'No description available.');
   }
 
   Widget _buildInDepthEffectText(Ability ability) {
     // Assuming English language for the in-depth effect
-    final inDepthEffectEntry = ability.effectEntries?.firstWhere(
-      (entry) => entry.language?.name == 'en',
-      orElse: () => VerboseEffect(
-        effect: 'In-depth effect description not available.',
-        shortEffect: '',
-      ),
-    );
+    final entries = ability.effectEntries;
+    final inDepthEffectEntry = entries == null || entries.isEmpty
+        ? null
+        : entries.firstWhere(
+            (entry) => entry.language?.name == 'en',
+            orElse: () => VerboseEffect(
+              effect: 'No description available.',
+              shortEffect: 'No description available.',
+            ),
+          );
 
-    return Text(inDepthEffectEntry!.effect!);
+    return Text(inDepthEffectEntry?.effect ?? 'No description available.');
   }
 
   DataRow _buildPokemonRow(BuildContext context, Pokemon pokemon) {
@@ -198,7 +205,7 @@ class AbilityScreen extends StatelessWidget {
       }),
       // DataCell(Text(secondAbility)),
       DataCell(Text(capitalizeFirstLetter(hiddenAbility.ability?.name ?? '')), onTap: () {
-        if(hiddenAbility.ability?.id != abilityId) {
+        if(hiddenAbility.ability?.id != null && hiddenAbility.ability?.id != abilityId) {
           Navigator.push(
           context,
           MaterialPageRoute(

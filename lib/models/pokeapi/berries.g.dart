@@ -93,7 +93,7 @@ const BerrySchema = CollectionSchema(
   getId: _berryGetId,
   getLinks: _berryGetLinks,
   attach: _berryAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _berryEstimateSize(
@@ -1511,7 +1511,7 @@ const BerryFlavorSchema = CollectionSchema(
   getId: _berryFlavorGetId,
   getLinks: _berryFlavorGetLinks,
   attach: _berryFlavorAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _berryFlavorEstimateSize(

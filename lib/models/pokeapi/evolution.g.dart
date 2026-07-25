@@ -49,7 +49,7 @@ const EvolutionTriggerSchema = CollectionSchema(
   getId: _evolutionTriggerGetId,
   getLinks: _evolutionTriggerGetLinks,
   attach: _evolutionTriggerAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _evolutionTriggerEstimateSize(

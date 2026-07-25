@@ -79,7 +79,7 @@ const GenerationSchema = CollectionSchema(
   getId: _generationGetId,
   getLinks: _generationGetLinks,
   attach: _generationAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _generationEstimateSize(
@@ -1533,7 +1533,7 @@ const PokedexSchema = CollectionSchema(
   getId: _pokedexGetId,
   getLinks: _pokedexGetLinks,
   attach: _pokedexAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _pokedexEstimateSize(
@@ -2711,7 +2711,7 @@ const VersionSchema = CollectionSchema(
   getId: _versionGetId,
   getLinks: _versionGetLinks,
   attach: _versionAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _versionEstimateSize(
@@ -3387,7 +3387,7 @@ const VersionGroupSchema = CollectionSchema(
   getId: _versionGroupGetId,
   getLinks: _versionGroupGetLinks,
   attach: _versionGroupAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _versionGroupEstimateSize(

@@ -81,7 +81,7 @@ const StatSchema = CollectionSchema(
   getId: _statGetId,
   getLinks: _statGetLinks,
   attach: _statAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _statEstimateSize(

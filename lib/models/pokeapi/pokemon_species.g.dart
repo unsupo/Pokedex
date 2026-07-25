@@ -176,7 +176,7 @@ const PokemonSpeciesSchema = CollectionSchema(
   getId: _pokemonSpeciesGetId,
   getLinks: _pokemonSpeciesGetLinks,
   attach: _pokemonSpeciesAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _pokemonSpeciesEstimateSize(
@@ -3151,7 +3151,7 @@ const EvolutionChainUrlSchema = CollectionSchema(
   getId: _evolutionChainUrlGetId,
   getLinks: _evolutionChainUrlGetLinks,
   attach: _evolutionChainUrlAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _evolutionChainUrlEstimateSize(

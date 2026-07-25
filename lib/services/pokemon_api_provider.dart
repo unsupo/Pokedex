@@ -12,13 +12,20 @@ import '../models/pokeapi/pokemon_details.dart';
 import '../models/pokeapi/pokemon_species.dart';
 import '../models/user_data.dart';
 import '../widgets/filter_modal.dart';
+import 'io/caught_pokemon_repository.dart';
+import 'io/caught_pokemon_transfer_service.dart';
+import 'io/csv_transport.dart';
 import 'pokemon_service.dart';
 
 class PokemonApiProvider with ChangeNotifier {
   final PokemonService _pokemonService;
   final LocalService _localService;
 
-  PokemonApiProvider(this._pokemonService, this._localService);
+  PokemonApiProvider(this._pokemonService, this._localService)
+      : _transferService = CaughtPokemonTransferService(
+            LocalServiceCaughtPokemonRepository(_localService));
+
+  final CaughtPokemonTransferService _transferService;
 
   final Map<int, Ability> _abilities = {};
   final Map<int, Move> _moves = {};
@@ -59,19 +66,19 @@ class PokemonApiProvider with ChangeNotifier {
 
   String? get error => _error;
 
-  void importPokemon(List<Pokemon?> importedPokemon) {
-    // Update the caught status in your provider
-    for (final importedPoke in importedPokemon) {
-      if (_pokemon.containsKey(importedPoke?.id)) {
-        _pokemon[importedPoke?.id]!.isCaught = true;
-      } else {
-        // Handle cases where the imported pokemon is not in the current list
-        if (kDebugMode) {
-          print("Imported Pokemon with ID ${importedPoke?.id} not found.");
-        }
+  Future<ExportResult> exportCaughtPokemon(CsvTransport transport) {
+    return _transferService.exportCaught(transport);
+  }
+
+  Future<ImportResult> importCaughtPokemon(CsvTransport transport) async {
+    final result = await _transferService.importCaught(transport);
+    if (!result.cancelled && result.importedCount > 0) {
+      for (final userData in await _localService.getAllUserData()) {
+        _pokemon[userData.id]?.userData = userData;
       }
+      notifyListeners();
     }
-    notifyListeners(); // Important: Notify listeners after import
+    return result;
   }
 
   Future<void> fetchData() async {
@@ -87,8 +94,7 @@ class PokemonApiProvider with ChangeNotifier {
       _fetchAbilities(),
       _fetchItems(),
     ];
-    Future.wait(futures);
-    Future.wait(futures);
+    await Future.wait(futures);
     _isLoadingPokemonDetails = false;
     _isLoadingMoves = false;
     _isLoadingAbilities = false;
@@ -141,13 +147,24 @@ class PokemonApiProvider with ChangeNotifier {
   }
 
   Future<void> _fetchPokemonList() async {
-    List<Pokemon> pokemons = await _pokemonService.getPokemonList();
-    for (Pokemon pokemon in pokemons) {
-      _pokemon[pokemon.id] = pokemon;
+    // Unlike every other _fetchX helper below, this one previously had no
+    // try/catch. Since it's the very first network call fetchData() makes,
+    // a transient failure here (e.g. a DNS hiccup) propagated as an
+    // unhandled exception out of an un-awaited postFrameCallback in
+    // main.dart, leaving the UI stuck on its loading spinner forever
+    // instead of surfacing an error.
+    try {
+      List<Pokemon> pokemons = await _pokemonService.getPokemonList();
+      for (Pokemon pokemon in pokemons) {
+        _pokemon[pokemon.id] = pokemon;
+      }
+      _filteredPokemon.addAll(_pokemon.values);
+    } catch (error) {
+      _error = 'Error fetching Pokemon list: ${error.toString()}';
+    } finally {
+      _isLoadingPokemon = false;
+      notifyListeners();
     }
-    _filteredPokemon.addAll(_pokemon.values);
-    _isLoadingPokemon = false;
-    notifyListeners();
   }
 
   Future<void> _fetchUserData() async {
@@ -173,17 +190,17 @@ class PokemonApiProvider with ChangeNotifier {
       if (details != null) {
         detailedPokemonIds.add(details.id);
         _pokemon[details.id]?.details = details;
-        notifyListeners();
       }
     }
+    notifyListeners();
 
     for (PokemonSpecies? species in allPokemonSpecies) {
       if (species != null) {
         speciesPokemonIds.add(species.id);
         _pokemon[species.id]?.species = species;
-        notifyListeners();
       }
     }
+    notifyListeners();
 
     final List<Future> futures = [];
     final List<PokemonDetails?> newPokemonDetails = [];
@@ -309,7 +326,7 @@ class PokemonApiProvider with ChangeNotifier {
       newEvolutionChains.add(evolutionChain);
       evolutionChain?.isLoading = false;
       for (int id in evolutionChain?.allPokemonIds ?? []) {
-        if (id - 1 >= 0 && id - 1 < _pokemon.length) {
+        if (_pokemon.containsKey(id)) {
           _pokemon[id]?.evolutionChain = evolutionChain;
         }
       }
@@ -429,11 +446,8 @@ class PokemonApiProvider with ChangeNotifier {
 
   void filterPokemon(
     String? searchQuery,
-    Map<Filters, dynamic> filters, {
-    List<String>? selectedTypes,
-    List<int>? selectedGeneration,
-    CaughtStatus caughtStatus = CaughtStatus.all,
-  }) {
+    Map<Filters, dynamic> filters,
+  ) {
     updateFilters(filters);
     // Extract the values from the map
     List<String>? selectedTypes = filters[Filters.Types] as List<String>?;
@@ -457,8 +471,9 @@ class PokemonApiProvider with ChangeNotifier {
       // Filter by Types (considering empty selectedTypes)
       try {
         final bool matchesType = (selectedTypes ?? []).isEmpty ||
-            pokemon.types.any((type) =>
-                selectedTypes!.toString().toLowerCase().contains(type));
+            pokemon.types.any((type) => selectedTypes!
+                .map((t) => t.toLowerCase())
+                .contains(type));
         // Filter by Abilities (considering empty selectedAbilities)
         final bool matchesAbility = (selectedAbilities ?? []).isEmpty ||
             pokemon.details == null ||
@@ -476,9 +491,9 @@ class PokemonApiProvider with ChangeNotifier {
             (caughtStatus == CaughtStatus.caughtOnly && pokemon.isCaught) ||
             (caughtStatus == CaughtStatus.notCaughtOnly && !pokemon.isCaught);
 
-        // Filter by Generation (considering null selectedGeneration)
-        final bool matchesGeneration = selectedGeneration == null ||
-            selectedGeneration.contains(pokemon.generation);
+        // Filter by Generation (considering empty selectedGeneration)
+        final bool matchesGeneration = (selectedGeneration ?? []).isEmpty ||
+            selectedGeneration!.contains(pokemon.generation);
 
         return (matchesName || matchesId) &&
             matchesType &&
@@ -506,8 +521,9 @@ class PokemonApiProvider with ChangeNotifier {
 
   void isCaught(int pokemonId, bool isCaught) {
     Pokemon? pokemon = allPokemon[pokemonId];
-    pokemon?.isCaught = isCaught;
-    _localService.saveUserData(pokemon!.userData);
+    if (pokemon == null) return;
+    pokemon.isCaught = isCaught;
+    _localService.saveUserData(pokemon.userData);
     notifyListeners();
   }
 

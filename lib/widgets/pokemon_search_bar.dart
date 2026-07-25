@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -15,6 +17,7 @@ class PokemonSearchBar extends StatefulWidget {
 
 class _PokemonSearchBarState extends State<PokemonSearchBar> {
   late final TextEditingController _searchController; // Use late
+  Timer? _debounce;
 
   @override
   void initState() {
@@ -25,13 +28,18 @@ class _PokemonSearchBarState extends State<PokemonSearchBar> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchController.removeListener(_onSearchChanged); // Remove listener
     _searchController.dispose();
     super.dispose();
   }
 
   void _onSearchChanged() {
-    _filterPokemon(context.read<PokemonApiProvider>().currentFilters);
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      _filterPokemon(context.read<PokemonApiProvider>().currentFilters);
+    });
   }
   void _resetScrollPosition(){
     // Reset the scroll position
@@ -64,6 +72,7 @@ class _PokemonSearchBarState extends State<PokemonSearchBar> {
                 suffixIcon: IconButton(
                   icon: const Icon(Icons.clear),
                   onPressed: () {
+                    _debounce?.cancel();
                     _searchController.clear();
                     _resetScrollPosition();
                     _filterPokemon({}); // Clear filters as well

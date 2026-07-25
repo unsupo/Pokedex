@@ -161,7 +161,7 @@ const TcgCardSchema = CollectionSchema(
   getId: _tcgCardGetId,
   getLinks: _tcgCardGetLinks,
   attach: _tcgCardAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _tcgCardEstimateSize(
@@ -4337,6 +4337,612 @@ extension TcgCardQueryProperty
       weaknessesProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'weaknesses');
+    });
+  }
+}
+
+// coverage:ignore-file
+// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
+
+extension GetCaughtTcgCardCollection on Isar {
+  IsarCollection<CaughtTcgCard> get caughtTcgCards => this.collection();
+}
+
+const CaughtTcgCardSchema = CollectionSchema(
+  name: r'CaughtTcgCard',
+  id: -5467176378594863132,
+  properties: {
+    r'cardId': PropertySchema(
+      id: 0,
+      name: r'cardId',
+      type: IsarType.string,
+    ),
+    r'isCaught': PropertySchema(
+      id: 1,
+      name: r'isCaught',
+      type: IsarType.bool,
+    )
+  },
+  estimateSize: _caughtTcgCardEstimateSize,
+  serialize: _caughtTcgCardSerialize,
+  deserialize: _caughtTcgCardDeserialize,
+  deserializeProp: _caughtTcgCardDeserializeProp,
+  idName: r'isarId',
+  indexes: {
+    r'cardId': IndexSchema(
+      id: -8501089313549364976,
+      name: r'cardId',
+      unique: true,
+      replace: true,
+      properties: [
+        IndexPropertySchema(
+          name: r'cardId',
+          type: IndexType.hash,
+          caseSensitive: true,
+        )
+      ],
+    )
+  },
+  links: {},
+  embeddedSchemas: {},
+  getId: _caughtTcgCardGetId,
+  getLinks: _caughtTcgCardGetLinks,
+  attach: _caughtTcgCardAttach,
+  version: '3.3.2',
+);
+
+int _caughtTcgCardEstimateSize(
+  CaughtTcgCard object,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  var bytesCount = offsets.last;
+  bytesCount += 3 + object.cardId.length * 3;
+  return bytesCount;
+}
+
+void _caughtTcgCardSerialize(
+  CaughtTcgCard object,
+  IsarWriter writer,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  writer.writeString(offsets[0], object.cardId);
+  writer.writeBool(offsets[1], object.isCaught);
+}
+
+CaughtTcgCard _caughtTcgCardDeserialize(
+  Id id,
+  IsarReader reader,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  final object = CaughtTcgCard(
+    cardId: reader.readString(offsets[0]),
+    isCaught: reader.readBool(offsets[1]),
+  );
+  return object;
+}
+
+P _caughtTcgCardDeserializeProp<P>(
+  IsarReader reader,
+  int propertyId,
+  int offset,
+  Map<Type, List<int>> allOffsets,
+) {
+  switch (propertyId) {
+    case 0:
+      return (reader.readString(offset)) as P;
+    case 1:
+      return (reader.readBool(offset)) as P;
+    default:
+      throw IsarError('Unknown property with id $propertyId');
+  }
+}
+
+Id _caughtTcgCardGetId(CaughtTcgCard object) {
+  return object.isarId;
+}
+
+List<IsarLinkBase<dynamic>> _caughtTcgCardGetLinks(CaughtTcgCard object) {
+  return [];
+}
+
+void _caughtTcgCardAttach(
+    IsarCollection<dynamic> col, Id id, CaughtTcgCard object) {}
+
+extension CaughtTcgCardByIndex on IsarCollection<CaughtTcgCard> {
+  Future<CaughtTcgCard?> getByCardId(String cardId) {
+    return getByIndex(r'cardId', [cardId]);
+  }
+
+  CaughtTcgCard? getByCardIdSync(String cardId) {
+    return getByIndexSync(r'cardId', [cardId]);
+  }
+
+  Future<bool> deleteByCardId(String cardId) {
+    return deleteByIndex(r'cardId', [cardId]);
+  }
+
+  bool deleteByCardIdSync(String cardId) {
+    return deleteByIndexSync(r'cardId', [cardId]);
+  }
+
+  Future<List<CaughtTcgCard?>> getAllByCardId(List<String> cardIdValues) {
+    final values = cardIdValues.map((e) => [e]).toList();
+    return getAllByIndex(r'cardId', values);
+  }
+
+  List<CaughtTcgCard?> getAllByCardIdSync(List<String> cardIdValues) {
+    final values = cardIdValues.map((e) => [e]).toList();
+    return getAllByIndexSync(r'cardId', values);
+  }
+
+  Future<int> deleteAllByCardId(List<String> cardIdValues) {
+    final values = cardIdValues.map((e) => [e]).toList();
+    return deleteAllByIndex(r'cardId', values);
+  }
+
+  int deleteAllByCardIdSync(List<String> cardIdValues) {
+    final values = cardIdValues.map((e) => [e]).toList();
+    return deleteAllByIndexSync(r'cardId', values);
+  }
+
+  Future<Id> putByCardId(CaughtTcgCard object) {
+    return putByIndex(r'cardId', object);
+  }
+
+  Id putByCardIdSync(CaughtTcgCard object, {bool saveLinks = true}) {
+    return putByIndexSync(r'cardId', object, saveLinks: saveLinks);
+  }
+
+  Future<List<Id>> putAllByCardId(List<CaughtTcgCard> objects) {
+    return putAllByIndex(r'cardId', objects);
+  }
+
+  List<Id> putAllByCardIdSync(List<CaughtTcgCard> objects,
+      {bool saveLinks = true}) {
+    return putAllByIndexSync(r'cardId', objects, saveLinks: saveLinks);
+  }
+}
+
+extension CaughtTcgCardQueryWhereSort
+    on QueryBuilder<CaughtTcgCard, CaughtTcgCard, QWhere> {
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhere> anyIsarId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(const IdWhereClause.any());
+    });
+  }
+}
+
+extension CaughtTcgCardQueryWhere
+    on QueryBuilder<CaughtTcgCard, CaughtTcgCard, QWhereClause> {
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause> isarIdEqualTo(
+      Id isarId) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IdWhereClause.between(
+        lower: isarId,
+        upper: isarId,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause>
+      isarIdNotEqualTo(Id isarId) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IdWhereClause.lessThan(upper: isarId, includeUpper: false),
+            )
+            .addWhereClause(
+              IdWhereClause.greaterThan(lower: isarId, includeLower: false),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IdWhereClause.greaterThan(lower: isarId, includeLower: false),
+            )
+            .addWhereClause(
+              IdWhereClause.lessThan(upper: isarId, includeUpper: false),
+            );
+      }
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause>
+      isarIdGreaterThan(Id isarId, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IdWhereClause.greaterThan(lower: isarId, includeLower: include),
+      );
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause> isarIdLessThan(
+      Id isarId,
+      {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IdWhereClause.lessThan(upper: isarId, includeUpper: include),
+      );
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause> isarIdBetween(
+    Id lowerIsarId,
+    Id upperIsarId, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IdWhereClause.between(
+        lower: lowerIsarId,
+        includeLower: includeLower,
+        upper: upperIsarId,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause> cardIdEqualTo(
+      String cardId) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IndexWhereClause.equalTo(
+        indexName: r'cardId',
+        value: [cardId],
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause>
+      cardIdNotEqualTo(String cardId) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'cardId',
+              lower: [],
+              upper: [cardId],
+              includeUpper: false,
+            ))
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'cardId',
+              lower: [cardId],
+              includeLower: false,
+              upper: [],
+            ));
+      } else {
+        return query
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'cardId',
+              lower: [cardId],
+              includeLower: false,
+              upper: [],
+            ))
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'cardId',
+              lower: [],
+              upper: [cardId],
+              includeUpper: false,
+            ));
+      }
+    });
+  }
+}
+
+extension CaughtTcgCardQueryFilter
+    on QueryBuilder<CaughtTcgCard, CaughtTcgCard, QFilterCondition> {
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      cardIdEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'cardId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      cardIdGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'cardId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      cardIdLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'cardId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      cardIdBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'cardId',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      cardIdStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'cardId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      cardIdEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'cardId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      cardIdContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'cardId',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      cardIdMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'cardId',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      cardIdIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'cardId',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      cardIdIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'cardId',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      isCaughtEqualTo(bool value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'isCaught',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      isarIdEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'isarId',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      isarIdGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'isarId',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      isarIdLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'isarId',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      isarIdBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'isarId',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+}
+
+extension CaughtTcgCardQueryObject
+    on QueryBuilder<CaughtTcgCard, CaughtTcgCard, QFilterCondition> {}
+
+extension CaughtTcgCardQueryLinks
+    on QueryBuilder<CaughtTcgCard, CaughtTcgCard, QFilterCondition> {}
+
+extension CaughtTcgCardQuerySortBy
+    on QueryBuilder<CaughtTcgCard, CaughtTcgCard, QSortBy> {
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterSortBy> sortByCardId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cardId', Sort.asc);
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterSortBy> sortByCardIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cardId', Sort.desc);
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterSortBy> sortByIsCaught() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isCaught', Sort.asc);
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterSortBy>
+      sortByIsCaughtDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isCaught', Sort.desc);
+    });
+  }
+}
+
+extension CaughtTcgCardQuerySortThenBy
+    on QueryBuilder<CaughtTcgCard, CaughtTcgCard, QSortThenBy> {
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterSortBy> thenByCardId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cardId', Sort.asc);
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterSortBy> thenByCardIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'cardId', Sort.desc);
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterSortBy> thenByIsCaught() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isCaught', Sort.asc);
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterSortBy>
+      thenByIsCaughtDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isCaught', Sort.desc);
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterSortBy> thenByIsarId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isarId', Sort.asc);
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterSortBy> thenByIsarIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isarId', Sort.desc);
+    });
+  }
+}
+
+extension CaughtTcgCardQueryWhereDistinct
+    on QueryBuilder<CaughtTcgCard, CaughtTcgCard, QDistinct> {
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QDistinct> distinctByCardId(
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'cardId', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QDistinct> distinctByIsCaught() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'isCaught');
+    });
+  }
+}
+
+extension CaughtTcgCardQueryProperty
+    on QueryBuilder<CaughtTcgCard, CaughtTcgCard, QQueryProperty> {
+  QueryBuilder<CaughtTcgCard, int, QQueryOperations> isarIdProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'isarId');
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, String, QQueryOperations> cardIdProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'cardId');
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, bool, QQueryOperations> isCaughtProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'isCaught');
     });
   }
 }

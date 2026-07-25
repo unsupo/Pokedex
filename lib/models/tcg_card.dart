@@ -1,6 +1,6 @@
 import 'dart:core';
 
-import 'package:isar/isar.dart';
+import 'package:isar_community/isar.dart';
 import 'package:json_annotation/json_annotation.dart';
 import 'package:pokedex_app/models/user_data.dart';
 
@@ -73,6 +73,26 @@ class TcgCard {
       _$TcgCardFromJson(json);
 
   Map<String, dynamic> toJson() => _$TcgCardToJson(this);
+}
+
+// Persisted caught-status for a TCG card, keyed by the TCG API's own
+// (globally unique, stable) string card id — e.g. "swsh1-1". This is
+// intentionally a separate Isar collection from UserData, which is keyed by
+// PokeAPI national dex ids (small ints). Reusing UserData/its id-space for
+// TCG cards would collide with and corrupt caught-Pokemon state.
+@collection
+class CaughtTcgCard {
+  final Id isarId = Isar.autoIncrement;
+
+  @Index(unique: true, replace: true)
+  late String cardId;
+
+  late bool isCaught;
+
+  CaughtTcgCard({
+    required this.cardId,
+    required this.isCaught,
+  });
 }
 
 @embedded

@@ -83,7 +83,7 @@ const AbilitySchema = CollectionSchema(
   getId: _abilityGetId,
   getLinks: _abilityGetLinks,
   attach: _abilityAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _abilityEstimateSize(

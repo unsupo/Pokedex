@@ -12,6 +12,9 @@
 .swiftpm/
 migrate_working_dir/
 
+# Secrets - see .env.example for the expected keys
+.env
+
 # IntelliJ related
 *.iml
 *.ipr

@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:isar/isar.dart';
+import 'package:isar_community/isar.dart';
 import 'package:pokedex_app/models/pokeapi/abilities.dart';
 import 'package:pokedex_app/models/pokeapi/berries.dart';
 import 'package:pokedex_app/models/pokeapi/characteristics.dart';
@@ -21,6 +21,7 @@ import 'package:pokedex_app/models/pokeapi/pokemon.dart';
 import 'package:pokedex_app/models/pokeapi/pokemon_species.dart';
 import 'package:pokedex_app/models/pokeapi/stat.dart';
 import 'package:pokedex_app/models/pokeapi/utility.dart';
+import 'package:pokedex_app/models/tcg_card.dart';
 import 'package:pokedex_app/models/user_data.dart';
 import '../../models/pokeapi/pokemon_details.dart';
 import 'local_service.dart';
@@ -89,6 +90,7 @@ class IsarService implements LocalService {
         PokeathlonStatSchema,
         StatSchema,
         LanguageSchema,
+        CaughtTcgCardSchema,
       ],
       directory: dir.path,
     );
@@ -1232,6 +1234,40 @@ class IsarService implements LocalService {
     });
   }
 
+  // region TCG Cards
+  @override
+  Future<CaughtTcgCard?> getCaughtTcgCard(String cardId) async {
+    return await _isarTransaction<CaughtTcgCard?>((isar) async {
+      if (kDebugMode) {
+        print('Fetching CaughtTcgCard $cardId from Isar');
+      }
+      return await isar.caughtTcgCards.filter().cardIdEqualTo(cardId).findFirst();
+    });
+  }
+
+  @override
+  Future<void> saveCaughtTcgCard(CaughtTcgCard caughtTcgCard) async {
+    await _isarTransaction<void>((isar) async {
+      if (kDebugMode) {
+        print('Saving CaughtTcgCard ${caughtTcgCard.cardId} to Isar');
+      }
+      await isar.writeTxn(() async {
+        await isar.caughtTcgCards.put(caughtTcgCard);
+      });
+    });
+  }
+
+  @override
+  Future<List<CaughtTcgCard>> getAllCaughtTcgCards() async {
+    return await _isarTransaction<List<CaughtTcgCard>>((isar) async {
+      if (kDebugMode) {
+        print('Fetching all CaughtTcgCards from Isar');
+      }
+      return await isar.caughtTcgCards.where().findAll();
+    });
+  }
+  //endregion
+
   @override
   Future<void> clearCache() async {
     await _isarTransaction<void>((isar) async {
@@ -1244,6 +1280,7 @@ class IsarService implements LocalService {
         await isar.pokemonSpecies.clear();
         await isar.evolutionChains.clear();
         await isar.evolutionChainUrls.clear();
+        await isar.berrys.clear();
         await isar.berryFlavors.clear();
         await isar.contestTypes.clear();
         await isar.encounterMethods.clear();
@@ -1280,6 +1317,7 @@ class IsarService implements LocalService {
         await isar.pokeathlonStats.clear();
         await isar.stats.clear();
         await isar.languages.clear();
+        await isar.caughtTcgCards.clear();
       });
     });
   }

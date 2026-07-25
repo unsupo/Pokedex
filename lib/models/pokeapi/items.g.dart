@@ -121,7 +121,7 @@ const ItemSchema = CollectionSchema(
   getId: _itemGetId,
   getLinks: _itemGetLinks,
   attach: _itemAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _itemEstimateSize(
@@ -2042,7 +2042,7 @@ const ItemAttributeSchema = CollectionSchema(
   getId: _itemAttributeGetId,
   getLinks: _itemAttributeGetLinks,
   attach: _itemAttributeAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _itemAttributeEstimateSize(
@@ -2981,7 +2981,7 @@ const ItemCategorySchema = CollectionSchema(
   getId: _itemCategoryGetId,
   getLinks: _itemCategoryGetLinks,
   attach: _itemCategoryAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _itemCategoryEstimateSize(
@@ -3811,7 +3811,7 @@ const ItemFlingEffectSchema = CollectionSchema(
   getId: _itemFlingEffectGetId,
   getLinks: _itemFlingEffectGetLinks,
   attach: _itemFlingEffectAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _itemFlingEffectEstimateSize(
@@ -4594,7 +4594,7 @@ const ItemPocketSchema = CollectionSchema(
   getId: _itemPocketGetId,
   getLinks: _itemPocketGetLinks,
   attach: _itemPocketAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _itemPocketEstimateSize(

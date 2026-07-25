@@ -1,5 +1,5 @@
 name: pokedex_app
-isar_version: &isar_version 3.1.8 # define the version to be used
+isar_version: &isar_version ^3.3.2 # isar_community, published on pub.dev
 
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
@@ -49,12 +49,10 @@ dependencies:
   cupertino_icons: ^1.0.8
   path_provider: ^2.0.15
   flutter_sticky_header: ^0.7.0
-  isar:
-    version: *isar_version
-    hosted: https://pub.isar-community.dev/
-  isar_flutter_libs: # contains Isar Core
-    version: *isar_version
-    hosted: https://pub.isar-community.dev/
+  isar_community: *isar_version
+  isar_community_flutter_libs: *isar_version # contains Isar Core
+  csv: ^6.0.0
+  flutter_dotenv: ^5.2.1
 
 dev_dependencies:
   flutter_test:
@@ -69,9 +67,7 @@ dev_dependencies:
 
   build_runner: ^2.4.6
   json_serializable: ^6.7.1
-  isar_generator:
-    version: *isar_version
-    hosted: https://pub.isar-community.dev/
+  isar_community_generator: *isar_version
 
 
 # For information on the generic Dart part of this file, see the
@@ -86,6 +82,7 @@ flutter:
     - assets/images/pokeball.png
     - assets/images/trade.png
     - assets/images/friendship.png
+    - .env
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.

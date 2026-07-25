@@ -32,6 +32,7 @@ class TcgApiProvider with ChangeNotifier {
 
     try {
       final tcgCards = await _tcgService.getCardsByNationalDexId(id);
+      await loadCaughtStatus(tcgCards);
       _pokemon[id] = tcgCards; // Update _pokemon only after successful fetch
       return tcgCards;
     } catch (error) {
@@ -46,12 +47,37 @@ class TcgApiProvider with ChangeNotifier {
     }
   }
 
-  void setCaught(TcgCard tcgCard) {
-    if(tcgCard.userData != null){
-      tcgCard.userData!.isCaught = !tcgCard.userData!.isCaught;
-    }else {
-      tcgCard.userData = UserData(id: tcgCard.isarId!, isCaught: true);
+  // Populate each card's transient userData.isCaught from the persisted
+  // CaughtTcgCard record (keyed by the card's own string id), so caught
+  // status survives across app restarts. Public (rather than private) so it
+  // can also be exercised directly in tests without a live TcgService/HTTP
+  // call.
+  @visibleForTesting
+  Future<void> loadCaughtStatus(List<TcgCard> tcgCards) async {
+    for (final tcgCard in tcgCards) {
+      final cardId = tcgCard.id;
+      if (cardId == null) continue;
+      final caughtTcgCard = await _localService.getCaughtTcgCard(cardId);
+      if (caughtTcgCard != null) {
+        tcgCard.userData = UserData(id: 0, isCaught: caughtTcgCard.isCaught);
+      }
+    }
+  }
+
+  Future<void> setCaught(TcgCard tcgCard) async {
+    final cardId = tcgCard.id;
+    if (cardId == null) return;
+
+    final newIsCaught = !(tcgCard.userData?.isCaught ?? false);
+    if (tcgCard.userData != null) {
+      tcgCard.userData!.isCaught = newIsCaught;
+    } else {
+      tcgCard.userData = UserData(id: 0, isCaught: newIsCaught);
     }
     notifyListeners();
+
+    await _localService.saveCaughtTcgCard(
+      CaughtTcgCard(cardId: cardId, isCaught: newIsCaught),
+    );
   }
 }

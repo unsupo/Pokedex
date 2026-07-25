@@ -49,7 +49,7 @@ const GenderSchema = CollectionSchema(
   getId: _genderGetId,
   getLinks: _genderGetLinks,
   attach: _genderAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _genderEstimateSize(

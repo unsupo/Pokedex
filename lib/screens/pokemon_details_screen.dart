@@ -17,6 +17,7 @@ import '../utils/string_utils.dart';
 import '../widgets/pokemon_details/evolution_chain_widget.dart';
 import '../widgets/pokemon_details/stat_bar.dart';
 import '../widgets/pokemon_details/type_chart.dart';
+import '../widgets/type_pill.dart';
 import 'catch_screen.dart';
 
 class PokemonDetailsScreen extends StatefulWidget {
@@ -32,18 +33,28 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   late Pokemon pokemon;
-  final ScrollController _scrollController = ScrollController();
+  late final Future<List<TcgCard>?> _tcgCardsFuture;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    // _tabController = TabController(length: 2, vsync: this, initialIndex: context.watch<UiStateProvider>().tabIndex);
-    _scrollController.addListener(_onScroll);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Provider.of<TcgApiProvider>(context, listen: false)
-          .getPokemonCards(widget.pokemonId);
-    });
+    // Keep UiStateProvider.tabIndex in sync with swipe-driven tab changes,
+    // not just the TabBar's onTap. Without this, didChangeDependencies below
+    // (which restores _tabController.index from UiStateProvider on every
+    // rebuild, including ones triggered by unrelated provider updates
+    // elsewhere in the app) would snap the view back to whatever tab was
+    // last tapped, discarding a swipe the user just made.
+    _tabController.addListener(_syncTabIndexListener);
+    _tcgCardsFuture = Provider.of<TcgApiProvider>(context, listen: false)
+        .getPokemonCards(widget.pokemonId);
+  }
+
+  void _syncTabIndexListener() {
+    if (!_tabController.indexIsChanging) {
+      Provider.of<UiStateProvider>(context, listen: false)
+          .setTabIndex(_tabController.index);
+    }
   }
 
   @override
@@ -54,28 +65,28 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
 
   @override
   void dispose() {
+    _tabController.removeListener(_syncTabIndexListener);
     _tabController.dispose();
-    _scrollController.removeListener(_onScroll);
-    _scrollController.dispose();
     super.dispose();
-  }
-
-  void _onScroll() {
-    bool shouldShowMainImage = _scrollController.offset < 100  &&
-        context.read<UiStateProvider>().tabIndex == 0;
-    Provider.of<UiStateProvider>(context, listen: false).setShowMainImage(shouldShowMainImage);
   }
 
   @override
   Widget build(BuildContext context) {
-    pokemon = context.watch<PokemonApiProvider>().allPokemon[widget.pokemonId]!;
+    final foundPokemon =
+        context.watch<PokemonApiProvider>().allPokemon[widget.pokemonId];
+    if (foundPokemon == null) {
+      return Scaffold(
+        appBar: AppBar(),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    pokemon = foundPokemon;
     final isCaught = context
             .watch<PokemonApiProvider>()
             .allPokemon[widget.pokemonId]
             ?.isCaught ??
         false;
     final allPokemon = context.watch<PokemonApiProvider>().allPokemon;
-    bool showMainImage = context.watch<UiStateProvider>().showMainImage;
     final previousPokemon =
         widget.pokemonId > 0 ? allPokemon[widget.pokemonId - 1] : null;
     final nextPokemon = widget.pokemonId < allPokemon.length - 1
@@ -206,199 +217,280 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
           ),
         ),
       ),
-      appBar: AppBar(
-        title: showMainImage
-            ? Text(
-                '#${pokemon.id} ${capitalizeFirstLetter(pokemon.name)}',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              )
-            : Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                // Center the title content
-                mainAxisSize: MainAxisSize.min,
-                // Make the Row take minimum space
-                children: [
-                  AnimatedOpacity(
-                    opacity: showMainImage ? 0.0 : 1.0,
-                    duration: Duration(milliseconds: 300),
-                    child: CachedNetworkImage(
+      // NestedScrollView + a pinned SliverAppBar/FlexibleSpaceBar ties the
+      // portrait-shrinks-into-header collapse directly to the scroll offset
+      // every frame (via the sliver protocol), instead of the previous
+      // approach of flipping a boolean at a fixed scroll threshold and
+      // cross-fading two separate image widgets on a fixed 300ms timer -
+      // which is what made it feel disconnected from the actual scroll
+      // gesture. Each tab below owns its own inner scroll position (via
+      // SliverOverlapInjector), which also fixes a latent bug where both
+      // tabs previously shared one ScrollController despite TabBarView
+      // building both tabs' widgets simultaneously.
+      body: NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) {
+          return [
+            SliverOverlapAbsorber(
+              handle: NestedScrollView.sliverOverlapAbsorberHandleFor(context),
+              sliver: SliverAppBar(
+                pinned: true,
+                expandedHeight: 260,
+                centerTitle: true,
+                // A plain title (rather than FlexibleSpaceBar.title) always
+                // renders in the toolbar row next to leading/actions -
+                // SliverAppBar automatically fades it in as the header
+                // collapses. FlexibleSpaceBar.title instead repositions
+                // itself relative to the *whole* app bar including `bottom`,
+                // which put it inside the TabBar's row instead of the
+                // toolbar row.
+                // A small sprite lives here (in the toolbar row, always
+                // visible) as well as large in flexibleSpace.background (the
+                // part that shrinks away as you scroll) - that's what makes
+                // the portrait actually *become* the header icon instead of
+                // just fading out to nothing once collapsed.
+                title: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CachedNetworkImage(
                       imageUrl: pokemon.imageUrl,
                       fadeInDuration: Duration.zero,
-                      placeholder: (context, url) => SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                      errorWidget: (context, url, error) => Icon(
+                      placeholder: (context, url) => const SizedBox(width: 28),
+                      errorWidget: (context, url, error) => const Icon(
                         Icons.catching_pokemon,
-                        size: 20,
+                        size: 28,
                         color: Colors.grey,
                       ),
-                      width: 20,
+                      width: 28,
+                      height: 28,
                     ),
-                  ),
-                  SizedBox(width: 8),
-                  Text('#${pokemon.id} ${capitalizeFirstLetter(pokemon.name)}'),
-                ],
-              ),
-        centerTitle: true,
-        // Center the AppBar title
-        leading: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (previousPokemon != null)
-              Padding(
-                padding: const EdgeInsets.only(left: 8.0),
-                child: GestureDetector(
-                    onTap: () {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => PokemonDetailsScreen(
-                              pokemonId: previousPokemon.id),
-                        ),
-                      );
-                    },
-                    child: Row(children: [
-                      Text(
-                        '#${previousPokemon.id}',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          CachedNetworkImage(
-                            imageUrl: previousPokemon.imageUrl,
-                            fadeInDuration: Duration.zero,
-                            placeholder: (context, url) => SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: Center(child: CircularProgressIndicator()),
-                            ),
-                            errorWidget: (context, url, error) => Icon(
-                              Icons.catching_pokemon,
-                              // Display Pokeball icon
-                              size: 20,
-                              color: Colors.grey,
-                            ),
-                            width: 20,
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            capitalizeFirstLetter(
-                                sanitizeName(previousPokemon.name)),
-                            style: TextStyle(fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ])),
-              ),
-          ],
-        ),
-        leadingWidth: previousPokemon != null ? 100 : 56,
-        // Adjust width based on content
-        actions: [
-          if (nextPokemon != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 8.0),
-              child: GestureDetector(
-                  onTap: () {
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            PokemonDetailsScreen(pokemonId: nextPokemon.id),
-                      ),
-                    );
-                  },
-                  child: Row(children: [
+                    const SizedBox(width: 8),
                     Text(
-                      '#${nextPokemon.id}',
-                      style: TextStyle(fontSize: 12),
+                      '#${pokemon.id} ${capitalizeFirstLetter(pokemon.name)}',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CachedNetworkImage(
-                          imageUrl: nextPokemon.imageUrl,
-                          fadeInDuration: Duration.zero,
-                          placeholder: (context, url) => SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: Center(child: CircularProgressIndicator()),
-                          ),
-                          errorWidget: (context, url, error) => Icon(
-                            Icons.catching_pokemon, // Display Pokeball icon
-                            size: 20,
-                            color: Colors.grey,
-                          ),
-                          width: 20,
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          capitalizeFirstLetter(sanitizeName(nextPokemon.name)),
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ],
+                  ],
+                ),
+                leading: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (previousPokemon != null)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8.0),
+                        child: GestureDetector(
+                            onTap: () {
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => PokemonDetailsScreen(
+                                      pokemonId: previousPokemon.id),
+                                ),
+                              );
+                            },
+                            child: Row(children: [
+                              Text(
+                                '#${previousPokemon.id}',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                              Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  CachedNetworkImage(
+                                    imageUrl: previousPokemon.imageUrl,
+                                    fadeInDuration: Duration.zero,
+                                    placeholder: (context, url) => SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: Center(child: CircularProgressIndicator()),
+                                    ),
+                                    errorWidget: (context, url, error) => Icon(
+                                      Icons.catching_pokemon,
+                                      // Display Pokeball icon
+                                      size: 20,
+                                      color: Colors.grey,
+                                    ),
+                                    width: 20,
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    capitalizeFirstLetter(
+                                        sanitizeName(previousPokemon.name)),
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ])),
+                      ),
+                  ],
+                ),
+                leadingWidth: previousPokemon != null ? 100 : 56,
+                actions: [
+                  if (nextPokemon != null)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8.0),
+                      child: GestureDetector(
+                          onTap: () {
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    PokemonDetailsScreen(pokemonId: nextPokemon.id),
+                              ),
+                            );
+                          },
+                          child: Row(children: [
+                            Text(
+                              '#${nextPokemon.id}',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                CachedNetworkImage(
+                                  imageUrl: nextPokemon.imageUrl,
+                                  fadeInDuration: Duration.zero,
+                                  placeholder: (context, url) => SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: Center(child: CircularProgressIndicator()),
+                                  ),
+                                  errorWidget: (context, url, error) => Icon(
+                                    Icons.catching_pokemon, // Display Pokeball icon
+                                    size: 20,
+                                    color: Colors.grey,
+                                  ),
+                                  width: 20,
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  capitalizeFirstLetter(sanitizeName(nextPokemon.name)),
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ])),
                     ),
-                  ])),
-            ),
-        ],
-      ),
-      body: Column(
-        children: [
-          AnimatedContainer(
-            duration: Duration(milliseconds: 300),
-            height: showMainImage ? null : 0,
-            padding: EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Center(
-                  child: AnimatedOpacity(
-                    opacity: showMainImage ? 1.0 : 0.0,
-                    duration: Duration(milliseconds: 300),
-                    child: CachedNetworkImage(
-                      imageUrl: pokemon.imageUrl,
-                      fadeInDuration: Duration.zero,
-                      placeholder: (context, url) => SizedBox(
-                        width: 200,
-                        child: Center(child: CircularProgressIndicator()),
+                ],
+                flexibleSpace: FlexibleSpaceBar(
+                  // background renders behind the pinned toolbar/bottom, from
+                  // y=0 down to expandedHeight, shrinking away as you scroll
+                  // - it doesn't need to dodge the toolbar row itself, just
+                  // needs to comfortably fit within expandedHeight (260) once
+                  // the always-present toolbar (56) and TabBar (48) are
+                  // accounted for, hence the modest image size here.
+                  background: Padding(
+                    padding: const EdgeInsets.only(top: kToolbarHeight),
+                    child: Center(
+                      child: CachedNetworkImage(
+                        imageUrl: pokemon.imageUrl,
+                        fadeInDuration: Duration.zero,
+                        placeholder: (context, url) => SizedBox(
+                          width: 130,
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                        errorWidget: (context, url, error) => Icon(
+                          Icons.catching_pokemon,
+                          size: 130,
+                          color: Colors.grey,
+                        ),
+                        width: 130,
                       ),
-                      errorWidget: (context, url, error) => Icon(
-                        Icons.catching_pokemon, // Display Pokeball icon
-                        size: 200,
-                        color: Colors.grey,
-                      ),
-                      width: 200,
                     ),
                   ),
                 ),
-                // Removed Text widget for large Pokemon name
-              ],
+                bottom: TabBar(
+                  controller: _tabController,
+                  tabs: [
+                    Tab(text: "Game Details"),
+                    Tab(text: "TCG Details"),
+                  ],
+                  onTap: (index) {
+                    Provider.of<UiStateProvider>(context, listen: false)
+                        .setTabIndex(index);
+                  },
+                ),
+              ),
             ),
+          ];
+        },
+        body: TabBarView(
+          controller: _tabController,
+          children: [
+            pokemon.isLoadingDetails
+                ? Center(child: CircularProgressIndicator())
+                : pokemon.details != null
+                    ? _buildGameDetailsTab(pokemon)
+                    : Center(child: Text("Details not available")),
+            _buildTcgDetailsTab(context),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Wraps [child] with the SliverOverlapInjector NestedScrollView requires
+  /// on every scrollable in its body, so this tab's content scrolls in sync
+  /// with (and can push under) the pinned, collapsing SliverAppBar above it.
+  Widget _buildTabScrollView(Widget child) {
+    return Builder(builder: (context) {
+      return CustomScrollView(
+        slivers: [
+          SliverOverlapInjector(
+            handle: NestedScrollView.sliverOverlapAbsorberHandleFor(context),
           ),
-          TabBar(
-            controller: _tabController,
-            tabs: [
-              Tab(text: "Game Details"),
-              Tab(text: "TCG Details"),
-            ],
-            onTap: (index) {
-              Provider.of<UiStateProvider>(context, listen: false).setTabIndex(index);
-            },
-          ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
+          SliverToBoxAdapter(child: child),
+        ],
+      );
+    });
+  }
+
+  /// A titled, icon-headed card wrapping one section of the details tab -
+  /// gives the whole tab consistent visual rhythm (elevation, rounded
+  /// corners, spacing) instead of a flat stack of bare Text widgets.
+  Widget _sectionCard({
+    required IconData icon,
+    required String title,
+    required List<Widget> children,
+  }) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                pokemon.isLoadingDetails
-                    ? Center(child: CircularProgressIndicator())
-                    : pokemon.details != null
-                        ? _buildGameDetailsTab(pokemon)
-                        : Center(child: Text("Details not available")),
-                _buildTcgDetailsTab(context),
+                Icon(icon, size: 20, color: Theme.of(context).primaryColor),
+                const SizedBox(width: 8),
+                Text(title,
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold)),
               ],
             ),
+            const Divider(height: 20),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// A small icon + label + value row, used for the plain facts inside
+  /// Pokédex Data/Training/Breeding (previously bare, unstyled Text lines).
+  Widget _infoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: Colors.grey[600]),
+          const SizedBox(width: 8),
+          Text('$label: ', style: TextStyle(color: Colors.grey[700])),
+          Expanded(
+            child: Text(value,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -406,132 +498,131 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
   }
 
   Widget _buildGameDetailsTab(Pokemon pokemon) {
-    return SingleChildScrollView(
-      controller: _scrollController,
-      child: Padding(
+    final evYieldStat = pokemon.details?.stats?.firstWhere(
+      (s) => s.effort != 0,
+      orElse: () => StatInfo(),
+    );
+    final hasEvYield = evYieldStat?.effort != null && evYieldStat!.effort != 0;
+    final typeNames = (pokemon.details?.types ?? [])
+        .map((t) => t.type?.name)
+        .whereType<String>()
+        .toList();
+    final totalBaseStat =
+        pokemon.details?.stats?.fold(0, (sum, stat) => sum + (stat.baseStat ?? 0));
+
+    return _buildTabScrollView(
+      Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (!context.watch<UiStateProvider>().showMainImage)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16.0),
-                child: Row(
-                  children: [
-                    CachedNetworkImage(
-                      imageUrl: pokemon.imageUrl,
-                      fadeInDuration: Duration.zero,
-                      placeholder: (context, url) => SizedBox(
-                        width: 40,
-                        child: Center(child: CircularProgressIndicator()),
+            _sectionCard(
+              icon: Icons.auto_awesome,
+              title: 'Pokédex Data',
+              children: [
+                _infoRow(Icons.tag, 'National No', '${pokemon.details?.id}'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Icon(Icons.category, size: 16, color: Colors.grey[600]),
+                      const SizedBox(width: 8),
+                      Text('Type: ', style: TextStyle(color: Colors.grey[700])),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: typeNames
+                            .map((name) => TypePill(type: name))
+                            .toList(),
                       ),
-                      errorWidget: (context, url, error) => Icon(
-                        Icons.catching_pokemon, // Display Pokeball icon
-                        size: 40,
-                        color: Colors.grey,
-                      ),
-                      width: 40,
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      '#${pokemon.id} ${capitalizeFirstLetter(pokemon.name)}',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            // Pokedex Data Section
-            Text("Pokédex Data",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            SizedBox(height: 8),
-            Text("National No ${pokemon.details?.id}"),
-            Text(
-                "Type ${pokemon.details?.types?.map((t) => t.type?.name).toString()}"),
-
-            Text(
-                "Height ${(pokemon.details?.height ?? 0) / 10} m (${((pokemon.details?.height ?? 0) / 10 * 3.28084).toStringAsFixed(2)} ft)"),
-            Text(
-                "Weight ${(pokemon.details?.weight ?? 0) / 10} kg (${((pokemon.details?.weight ?? 0) / 10 * 2.20462).toStringAsFixed(2)} lb)"),
-
-            _buildAbilitiesWidget(context, pokemon.details?.abilities),
-            SizedBox(height: 24),
-
-            // Training Section
-            Text("Training",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            SizedBox(height: 8),
-
-            Text(
-                "EV yield: ${pokemon.details?.stats?.firstWhere((s) => s.effort != 0).effort} ${pokemon.details?.stats?.firstWhere((s) => s.effort != 0).stat?.name}"),
-            // Text('Catch rate: ${details}'), // TODO implement pokemon species
-            // Text('Base Friendship: ${details.}'),
-            Text("Base Exp.: ${pokemon.details?.baseExperience}"),
-            // Text('Growth Rate: ${details.baseExperience}'), // species
-
-            SizedBox(height: 24),
-
-            // Breeding Section
-            Text("Breeding",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            SizedBox(height: 8),
-            // egg groups is in pokemon species
-            // gender rates
-            Text("Gender Rate ${pokemon.species?.genderRate}"),
-            // hatch counter
-            Text("Hatch Counter ${pokemon.species?.hatchCounter}"),
-            // ... Add breeding data (you might need to fetch this from the species endpoint)
-
-            SizedBox(height: 24),
-
-            // Base Stats Section
-            Text("Base Stats",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            SizedBox(height: 8),
-            for (var stat in pokemon.details?.stats ?? [])
-              StatBar(
-                label: stat.stat.name,
-                value: stat.baseStat,
-              ),
-            SizedBox(height: 8),
-            Row(children: [
-              SizedBox(
-                width: 70, // Adjust label width as needed
-                child: Text(
-                  "Total",
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                _infoRow(
+                  Icons.height,
+                  'Height',
+                  '${(pokemon.details?.height ?? 0) / 10} m (${((pokemon.details?.height ?? 0) / 10 * 3.28084).toStringAsFixed(2)} ft)',
                 ),
-              ),
-              Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10.0, vertical: 0),
-                  child: Text(
-                    '${pokemon.details?.stats?.fold(0, (sum, stat) => sum + (stat.baseStat ?? 0))}',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ))
-            ]),
-            SizedBox(height: 24),
-
-            // Type Chart Section
-            Text("Type Chart",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            TypeChart(
-              types: pokemon.details!.types ?? [],
-              isWonderGuard:
-                  pokemon.details?.abilities?.firstOrNull?.ability?.name ==
-                      'wonder-guard',
+                _infoRow(
+                  Icons.monitor_weight_outlined,
+                  'Weight',
+                  '${(pokemon.details?.weight ?? 0) / 10} kg (${((pokemon.details?.weight ?? 0) / 10 * 2.20462).toStringAsFixed(2)} lb)',
+                ),
+                const SizedBox(height: 8),
+                _buildAbilitiesWidget(context, pokemon.details?.abilities),
+              ],
             ),
-
-            SizedBox(height: 24),
-
-            // Evolution Chain Section
-            Text("Evolution Chain",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            _buildEvolutionChainSection(pokemon),
-
-            Text("Level Up Moves",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            _buildMovesSection(pokemon, context),
+            _sectionCard(
+              icon: Icons.fitness_center,
+              title: 'Training',
+              children: [
+                if (hasEvYield)
+                  _infoRow(Icons.trending_up, 'EV Yield',
+                      '${evYieldStat.effort} ${evYieldStat.stat?.name}'),
+                _infoRow(Icons.military_tech, 'Base Exp.',
+                    '${pokemon.details?.baseExperience}'),
+              ],
+            ),
+            _sectionCard(
+              icon: Icons.egg_outlined,
+              title: 'Breeding',
+              children: [
+                _infoRow(Icons.wc, 'Gender Rate',
+                    '${pokemon.species?.genderRate}'),
+                _infoRow(Icons.timer_outlined, 'Hatch Counter',
+                    '${pokemon.species?.hatchCounter}'),
+              ],
+            ),
+            _sectionCard(
+              icon: Icons.bar_chart,
+              title: 'Base Stats',
+              children: [
+                for (var stat in pokemon.details?.stats ?? [])
+                  StatBar(
+                    label: stat.stat.name,
+                    value: stat.baseStat,
+                  ),
+                const SizedBox(height: 8),
+                Row(children: [
+                  const SizedBox(
+                    width: 70,
+                    child: Text(
+                      "Total",
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10.0),
+                      child: Text(
+                        '$totalBaseStat',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ))
+                ]),
+              ],
+            ),
+            _sectionCard(
+              icon: Icons.grid_view,
+              title: 'Type Chart',
+              children: [
+                TypeChart(
+                  types: pokemon.details!.types ?? [],
+                  isWonderGuard: pokemon.details?.abilities?.firstOrNull?.ability
+                          ?.name ==
+                      'wonder-guard',
+                ),
+              ],
+            ),
+            _sectionCard(
+              icon: Icons.change_circle_outlined,
+              title: 'Evolution Chain',
+              children: [_buildEvolutionChainSection(pokemon)],
+            ),
+            _sectionCard(
+              icon: Icons.list_alt,
+              title: 'Level Up Moves',
+              children: [_buildMovesSection(pokemon, context)],
+            ),
             // TODO location api /pokemon/{id}/encounters
           ],
         ),
@@ -627,81 +718,93 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
         context.watch<TcgApiProvider>().loadingPokemon[widget.pokemonId];
     if (isLoading == null || isLoading) {
       return Center(child: CircularProgressIndicator());
-    } else {
-      return FutureBuilder<List<TcgCard>?>(
-          future:
-              context.read<TcgApiProvider>().getPokemonCards(widget.pokemonId),
+    }
+    return _buildTabScrollView(
+      FutureBuilder<List<TcgCard>?>(
+          future: _tcgCardsFuture,
           builder: (context, snapshot) {
             if (!snapshot.hasData || snapshot.data == null) {
               return Center(child: CircularProgressIndicator());
             } else {
-              return SingleChildScrollView(
-                controller: _scrollController,
-                child: GridView.builder(
-                  physics: NeverScrollableScrollPhysics(),
-                  // Disable scrolling within GridView
-                  shrinkWrap: true,
-                  // Important when nested in a scrollable
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 8.0,
-                    mainAxisSpacing: 8.0,
-                    childAspectRatio: 0.7,
-                  ),
-                  itemCount: snapshot.data!.length,
-                  // Use the length of your data
-                  itemBuilder: (context, index) {
-                    return Card(
-                      color: (snapshot.data == null ? false : snapshot.data![index].userData?.isCaught??false) ? Colors.blue : Colors.white,
-                      child: Column(
-                        children: [
-                          Expanded(
-                            // Make the image take up available space
-                            child: InkWell(
-                              // Use InkWell for tap detection
-                              onTap: () {
-                                Provider.of<TcgApiProvider>(context, listen: false).setCaught(snapshot.data![index]);
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.all(8.0),
-                                child: Image.network(
-                                  snapshot.data![index].images!.large ??
-                                      'default_image_url',
-                                  // Provide a default URL
-                                  fit: BoxFit.contain,
-                                  loadingBuilder: (BuildContext context,
-                                      Widget child,
-                                      ImageChunkEvent? loadingProgress) {
-                                    if (loadingProgress == null) return child;
-                                    return Center(
-                                      child: CircularProgressIndicator(
-                                        value: loadingProgress
-                                                    .expectedTotalBytes !=
-                                                null
-                                            ? loadingProgress
-                                                    .cumulativeBytesLoaded /
-                                                loadingProgress
-                                                    .expectedTotalBytes!
-                                            : null,
+              return GridView.builder(
+                physics: NeverScrollableScrollPhysics(),
+                // Disable scrolling within GridView
+                shrinkWrap: true,
+                // Important when nested in a scrollable
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 8.0,
+                  mainAxisSpacing: 8.0,
+                  childAspectRatio: 0.7,
+                ),
+                itemCount: snapshot.data!.length,
+                // Use the length of your data
+                itemBuilder: (context, index) {
+                  return Card(
+                    color: (snapshot.data == null ? false : snapshot.data![index].userData?.isCaught??false) ? Colors.blue : Colors.white,
+                    child: Column(
+                      children: [
+                        Expanded(
+                          // Make the image take up available space
+                          child: InkWell(
+                            // Use InkWell for tap detection
+                            onTap: () {
+                              Provider.of<TcgApiProvider>(context, listen: false).setCaught(snapshot.data![index]);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              // images (and images.large) are nullable on
+                              // TcgCard - some cards (promos, certain error
+                              // cases) come back from the API without an
+                              // images object at all, so this can't be
+                              // force-unwrapped without crashing the tab.
+                              child: snapshot.data![index].images?.large ==
+                                      null
+                                  ? const Center(
+                                      child: Icon(
+                                        Icons.catching_pokemon,
+                                        size: 64,
+                                        color: Colors.grey,
                                       ),
-                                    );
-                                  },
-                                  errorBuilder: (BuildContext context,
-                                      Object error, StackTrace? stackTrace) {
-                                    return Icon(Icons.error);
-                                  },
-                                ),
-                              ),
+                                    )
+                                  : Image.network(
+                                      snapshot.data![index].images!.large!,
+                                      fit: BoxFit.contain,
+                                      loadingBuilder: (BuildContext context,
+                                          Widget child,
+                                          ImageChunkEvent? loadingProgress) {
+                                        if (loadingProgress == null) {
+                                          return child;
+                                        }
+                                        return Center(
+                                          child: CircularProgressIndicator(
+                                            value: loadingProgress
+                                                        .expectedTotalBytes !=
+                                                    null
+                                                ? loadingProgress
+                                                        .cumulativeBytesLoaded /
+                                                    loadingProgress
+                                                        .expectedTotalBytes!
+                                                : null,
+                                          ),
+                                        );
+                                      },
+                                      errorBuilder: (BuildContext context,
+                                          Object error,
+                                          StackTrace? stackTrace) {
+                                        return Icon(Icons.error);
+                                      },
+                                    ),
                             ),
                           ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               );
             }
-          });
-    }
+          }),
+    );
   }
 }

@@ -20,6 +20,7 @@ import '../../models/pokeapi/pokemon_details.dart';
 import '../../models/pokeapi/pokemon_species.dart';
 import '../../models/pokeapi/stat.dart';
 import '../../models/pokeapi/utility.dart';
+import '../../models/tcg_card.dart';
 import '../../models/user_data.dart';
 
 abstract class LocalService {
@@ -190,5 +191,11 @@ abstract class LocalService {
 
   Future<List<Item?>> getAllItems();
   Future<void> saveAllItems(List<Item?> items);
+  //endregion
+
+  // region TCG Cards
+  Future<CaughtTcgCard?> getCaughtTcgCard(String cardId);
+  Future<void> saveCaughtTcgCard(CaughtTcgCard caughtTcgCard);
+  Future<List<CaughtTcgCard>> getAllCaughtTcgCards();
   //endregion
 }

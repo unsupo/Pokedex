@@ -146,7 +146,7 @@ const PokemonDetailsSchema = CollectionSchema(
   getId: _pokemonDetailsGetId,
   getLinks: _pokemonDetailsGetLinks,
   attach: _pokemonDetailsAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _pokemonDetailsEstimateSize(

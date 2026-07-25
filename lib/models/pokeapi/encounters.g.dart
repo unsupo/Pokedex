@@ -48,7 +48,7 @@ const EncounterMethodSchema = CollectionSchema(
   getId: _encounterMethodGetId,
   getLinks: _encounterMethodGetLinks,
   attach: _encounterMethodAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _encounterMethodEstimateSize(
@@ -794,7 +794,7 @@ const EncounterConditionSchema = CollectionSchema(
   getId: _encounterConditionGetId,
   getLinks: _encounterConditionGetLinks,
   attach: _encounterConditionAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _encounterConditionEstimateSize(
@@ -1583,7 +1583,7 @@ const EncounterConditionValueSchema = CollectionSchema(
   getId: _encounterConditionValueGetId,
   getLinks: _encounterConditionValueGetLinks,
   attach: _encounterConditionValueAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _encounterConditionValueEstimateSize(

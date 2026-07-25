@@ -47,7 +47,7 @@ const MachineSchema = CollectionSchema(
   getId: _machineGetId,
   getLinks: _machineGetLinks,
   attach: _machineAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _machineEstimateSize(

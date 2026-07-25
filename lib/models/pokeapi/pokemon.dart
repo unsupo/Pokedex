@@ -1,6 +1,6 @@
 
 import 'package:flutter/cupertino.dart';
-import 'package:isar/isar.dart';
+import 'package:isar_community/isar.dart';
 import 'package:json_annotation/json_annotation.dart';
 import 'package:pokedex_app/models/pokeapi/evolution_chain.dart';
 import 'package:pokedex_app/models/pokeapi/pokemon_species.dart';
@@ -32,10 +32,23 @@ class Pokemon with ChangeNotifier {
   });
 
   factory Pokemon.fromJson(Map<String, dynamic> json) {
+    final String url = json['url'];
+    final rawId = json['id'];
+    // PokeAPI's list endpoint (GET /pokemon) returns only {name, url}, with
+    // no 'id' key. When that's the shape we're given, derive the id from
+    // the trailing path segment of the url instead, mirroring the manual
+    // parsing already used in PokemonService.getPokemonList().
+    final int id;
+    if (rawId is int) {
+      id = rawId;
+    } else {
+      final segments = url.split('/');
+      id = int.parse(segments[segments.length - 2]);
+    }
     return Pokemon(
-      id: json['id'],
+      id: id,
       name: json['name'],
-      url: json['url'],
+      url: url,
     );
   }
 

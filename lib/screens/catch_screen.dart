@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../models/pokeapi/pokemon_details.dart';
 import '../services/pokemon_api_provider.dart'; // Adjust path as needed
+import '../utils/capture_util.dart';
 
 class PokemonCatchScreen extends StatefulWidget {
   final int pokemonId;
@@ -22,83 +23,153 @@ class _PokemonCatchScreenState extends State<PokemonCatchScreen> {
   String? _selectedStatus = 'Normal';
   String _selectedBall = 'Poke Ball';
   double _catchProbability = 0.0;
-  double _maxHP = 100;
+  bool _calculatedWithRealData = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Pokemon pokemon =
-      context.read<PokemonApiProvider>().allPokemon[widget.pokemonId]!;
-      _calculateProbability(pokemon.species?.captureRate);
+      if (!mounted) return;
+      final pokemon =
+          context.read<PokemonApiProvider>().allPokemon[widget.pokemonId];
+      if (pokemon != null) {
+        _calculateProbability(pokemon);
+      }
     });
   }
 
-  double calculateCatchProbability(int? catchRate) {
+  /// The Pokémon's real max HP (from its base stats), not a fixed guess —
+  /// the catch-probability formula is HP-sensitive, so assuming every
+  /// Pokémon has 100 max HP would make the "fixed" formula still wrong.
+  /// Falls back to 100 only while stats haven't loaded yet.
+  int _maxHpFor(Pokemon pokemon) {
+    final hpStat = pokemon.details?.stats?.firstWhere(
+      (s) => s.stat?.name == 'hp',
+      orElse: () => StatInfo(),
+    );
+    return hpStat?.baseStat ?? 100;
+  }
+
+  /// Maps the UI's ball dropdown selection to the ball catch-rate multiplier
+  /// used by [CaptureCalculator] (consistent across all generations).
+  double _ballBonusFor(String ball) {
+    switch (ball) {
+      case 'Ultra Ball':
+        return 2.0;
+      case 'Great Ball':
+        return 1.5;
+      case 'Poke Ball':
+      default:
+        return 1.0;
+    }
+  }
+
+  /// Maps the UI's status selection to the statusBonus value expected by
+  /// [CaptureCalculator]. Gen I/II branches treat statusBonus purely as a
+  /// lookup flag (2.0 => sleep/frozen, 1.5 => paralyzed/burned/poisoned),
+  /// while Gen III+ branches use it as the real catch-rate multiplier (2.5
+  /// for sleep/frozen, 1.5 for the others) - see capture_util.dart.
+  double _statusBonusFor(int generation) {
+    final bool isAsleepOrFrozen =
+        _selectedStatus == 'Sleep' || _selectedStatus == 'Frozen';
+    final bool isParalyzedBurnedOrPoisoned = _selectedStatus == 'Paralyzed' ||
+        _selectedStatus == 'Burned' ||
+        _selectedStatus == 'Poisoned';
+
+    if (generation <= 2) {
+      if (isAsleepOrFrozen) return 2.0;
+      if (isParalyzedBurnedOrPoisoned) return 1.5;
+      return 1.0;
+    }
+
+    if (isAsleepOrFrozen) return 2.5;
+    if (isParalyzedBurnedOrPoisoned) return 1.5;
+    return 1.0;
+  }
+
+  double calculateCatchProbability(Pokemon pokemon) {
+    final int? catchRate = pokemon.species?.captureRate;
     if (catchRate == null) {
       return -1; // Loading state
     }
 
-    // 1. HP Factor using HP percentage
-    double hpFactor = (3 - 2 * _hpSliderValue) / 3;
-    double baseCatchRate = hpFactor * catchRate;
-
-    // 2. Ball Modifier
-    double ballModifier = 1;
-    switch (_selectedBall) {
-      case 'Ultra Ball':
-        ballModifier = 2.0;
-        break;
-      case 'Great Ball':
-        ballModifier = 1.5;
-        break;
-      case 'Master Ball':
-        return 100; // Master Ball always catches
-    }
-
-    // 3. Status Modifier
-    double statusModifier = 1.0;
-    switch (_selectedStatus) {
-      case 'Sleep':
-      case 'Frozen':
-        statusModifier = 2.5;
-        break;
-      case 'Paralyzed':
-      case 'Poisoned':
-      case 'Burned':
-        statusModifier = 1.5;
-        break;
-    }
-
-    // 4. Compute "a" (catch chance factor)
-    double a = baseCatchRate * ballModifier * statusModifier;
-
-    // 5. Auto-catch if a >= 255
-    if (a >= 255) {
+    if (_selectedBall == 'Master Ball') {
+      // Not reachable via the current ball dropdown, kept defensively.
       return 100;
     }
 
-    // 6. Compute shake probability factor (b)
-    double b = (1048560 / sqrt(sqrt(16711680 / a)));
+    // Pokemon.generation (lib/models/pokeapi/pokemon.dart) is derived from
+    // the national dex id and returns 0 for ids outside the currently-known
+    // generation 1-9 ranges. CaptureCalculator only supports generations
+    // 1-9, so fall back to the most recent generation's formula in that case.
+    int generation = pokemon.generation;
+    if (generation < 1 || generation > 9) {
+      generation = 9;
+    }
 
-    // 7. Compute final probability
-    double probability = pow((b / 65536), 4) * 100;
+    int maxHp = _maxHpFor(pokemon);
+    int currentHp = (_hpSliderValue * maxHp).round();
 
-    return probability;
+    try {
+      double probability = CaptureCalculator.calculateCaptureProbability(
+        generation: generation,
+        maxHp: maxHp,
+        currentHp: currentHp,
+        captureRate: catchRate,
+        ballBonus: _ballBonusFor(_selectedBall),
+        statusBonus: _statusBonusFor(generation),
+        // Gen I only. `level`/`opponentStatusBonus` are not actually read by
+        // the current CaptureCalculator Gen I formula (they exist for a
+        // not-yet-implemented Ditto-transform edge case), so these are safe
+        // placeholders required only to satisfy the API.
+        level: generation == 1 ? _selectedLevel : null,
+        opponentStatusBonus: generation == 1 ? 1.0 : null,
+        // Gen 9 only - this screen has no dedicated UI for these yet, so use
+        // conservative/neutral defaults (8 badges, no Catching Charm, no
+        // Catching Power boost, no Pokédex completion bonus).
+        numBadges: generation == 9 ? 8 : null,
+        hasCatchingCharm: generation == 9 ? false : null,
+        catchingPowerLevel: generation == 9 ? 0 : null,
+        pokedexEntries: generation == 9 ? 0 : null,
+      );
+      return probability * 100;
+    } on ArgumentError catch (e) {
+      debugPrint('CaptureCalculator error: $e');
+      return -1;
+    }
   }
 
-  void _calculateProbability(catchRate) {
+  void _calculateProbability(Pokemon pokemon) {
     if (mounted) {
       setState(() {
-        _catchProbability = calculateCatchProbability(catchRate);
+        _catchProbability = calculateCatchProbability(pokemon);
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    Pokemon pokemon =
-    context.watch<PokemonApiProvider>().allPokemon[widget.pokemonId]!;
+    final pokemon =
+        context.watch<PokemonApiProvider>().allPokemon[widget.pokemonId];
+    if (pokemon == null) {
+      return Scaffold(
+        appBar: AppBar(),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    // The initial calculation (in initState) can run before species/details
+    // data (needed for captureRate and the real max-HP stat) has finished
+    // loading in the background, leaving _catchProbability stuck. Once both
+    // have arrived, recompute exactly once so the displayed number catches
+    // up without re-triggering on every subsequent rebuild.
+    if (!_calculatedWithRealData &&
+        pokemon.species?.captureRate != null &&
+        pokemon.details?.stats != null) {
+      _calculatedWithRealData = true;
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _calculateProbability(pokemon));
+    }
 
     // Determine if the button should be disabled and change color
     bool isButtonDisabled =
@@ -158,7 +229,7 @@ class _PokemonCatchScreenState extends State<PokemonCatchScreen> {
                 if (value > 0) {
                   setState(() {
                     _hpSliderValue = value;
-                    _calculateProbability(pokemon.species?.captureRate);
+                    _calculateProbability(pokemon);
                   });
                 }
               },
@@ -177,7 +248,7 @@ class _PokemonCatchScreenState extends State<PokemonCatchScreen> {
                   onPressed: () {
                     setState(() {
                       _selectedStatus = 'Normal';
-                      _calculateProbability(pokemon.species?.captureRate);
+                      _calculateProbability(pokemon);
                     });
                   },
                   style: ElevatedButton.styleFrom(
@@ -190,7 +261,7 @@ class _PokemonCatchScreenState extends State<PokemonCatchScreen> {
                   onPressed: () {
                     setState(() {
                       _selectedStatus = 'Paralyzed';
-                      _calculateProbability(pokemon.species?.captureRate);
+                      _calculateProbability(pokemon);
                     });
                   },
                   style: ElevatedButton.styleFrom(
@@ -203,7 +274,7 @@ class _PokemonCatchScreenState extends State<PokemonCatchScreen> {
                   onPressed: () {
                     setState(() {
                       _selectedStatus = 'Sleep';
-                      _calculateProbability(pokemon.species?.captureRate);
+                      _calculateProbability(pokemon);
                     });
                   },
                   style: ElevatedButton.styleFrom(
@@ -222,7 +293,7 @@ class _PokemonCatchScreenState extends State<PokemonCatchScreen> {
               onChanged: (newValue) {
                 setState(() {
                   _selectedBall = newValue!;
-                  _calculateProbability(pokemon.species?.captureRate);
+                  _calculateProbability(pokemon);
                 });
               },
               items: <String>[

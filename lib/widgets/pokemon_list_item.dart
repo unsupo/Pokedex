@@ -9,12 +9,10 @@ import '../screens/pokemon_details_screen.dart';
 
 class PokemonListItem extends StatefulWidget {
   final int pokemonId;
-  final Function(bool) onCheckboxChanged;
 
   const PokemonListItem({
     super.key,
     required this.pokemonId,
-    required this.onCheckboxChanged,
   });
 
   @override
@@ -118,7 +116,6 @@ class _PokemonListItemState extends State<PokemonListItem> {
             onTap: () {
               Provider.of<PokemonApiProvider>(context, listen: false)
                   .isCaught(widget.pokemonId, !isCaught);
-              widget.onCheckboxChanged(!isCaught);
             },
             behavior: HitTestBehavior.opaque,
             child: Padding(

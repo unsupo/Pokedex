@@ -49,7 +49,7 @@ const EggGroupSchema = CollectionSchema(
   getId: _eggGroupGetId,
   getLinks: _eggGroupGetLinks,
   attach: _eggGroupAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _eggGroupEstimateSize(

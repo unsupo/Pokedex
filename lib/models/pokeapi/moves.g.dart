@@ -175,7 +175,7 @@ const MoveSchema = CollectionSchema(
   getId: _moveGetId,
   getLinks: _moveGetLinks,
   attach: _moveAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _moveEstimateSize(
@@ -2836,7 +2836,7 @@ const MoveAilmentSchema = CollectionSchema(
   getId: _moveAilmentGetId,
   getLinks: _moveAilmentGetLinks,
   attach: _moveAilmentAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _moveAilmentEstimateSize(
@@ -3595,7 +3595,7 @@ const MoveBattleStyleSchema = CollectionSchema(
   getId: _moveBattleStyleGetId,
   getLinks: _moveBattleStyleGetLinks,
   attach: _moveBattleStyleAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _moveBattleStyleEstimateSize(
@@ -4224,7 +4224,7 @@ const MoveCategorySchema = CollectionSchema(
   getId: _moveCategoryGetId,
   getLinks: _moveCategoryGetLinks,
   attach: _moveCategoryAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _moveCategoryEstimateSize(
@@ -5006,7 +5006,7 @@ const MoveDamageClassSchema = CollectionSchema(
   getId: _moveDamageClassGetId,
   getLinks: _moveDamageClassGetLinks,
   attach: _moveDamageClassAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _moveDamageClassEstimateSize(
@@ -5933,7 +5933,7 @@ const MoveUrlSchema = CollectionSchema(
   getId: _moveUrlGetId,
   getLinks: _moveUrlGetLinks,
   attach: _moveUrlAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _moveUrlEstimateSize(
@@ -6548,7 +6548,7 @@ const MoveLearnMethodSchema = CollectionSchema(
   getId: _moveLearnMethodGetId,
   getLinks: _moveLearnMethodGetLinks,
   attach: _moveLearnMethodAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _moveLearnMethodEstimateSize(
@@ -7492,7 +7492,7 @@ const MoveTargetSchema = CollectionSchema(
   getId: _moveTargetGetId,
   getLinks: _moveTargetGetLinks,
   attach: _moveTargetAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _moveTargetEstimateSize(

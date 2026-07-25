@@ -62,7 +62,7 @@ const LocationSchema = CollectionSchema(
   getId: _locationGetId,
   getLinks: _locationGetLinks,
   attach: _locationAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _locationEstimateSize(
@@ -1039,7 +1039,7 @@ const LocationAreaSchema = CollectionSchema(
   getId: _locationAreaGetId,
   getLinks: _locationAreaGetLinks,
   attach: _locationAreaAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _locationAreaEstimateSize(
@@ -2138,7 +2138,7 @@ const PalParkAreaSchema = CollectionSchema(
   getId: _palParkAreaGetId,
   getLinks: _palParkAreaGetLinks,
   attach: _palParkAreaAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _palParkAreaEstimateSize(
@@ -2923,7 +2923,7 @@ const RegionSchema = CollectionSchema(
   getId: _regionGetId,
   getLinks: _regionGetLinks,
   attach: _regionAttach,
-  version: '3.1.8',
+  version: '3.3.2',
 );
 
 int _regionEstimateSize(

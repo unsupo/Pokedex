@@ -136,6 +136,37 @@ is not evidence.
 > phase that needs E2E adds it to `pubspec.yaml` under `dev_dependencies` (sdk: flutter), then
 > records that in the doc's implementation plan.
 
+### 4.3.1 Manual live-app proof (required for every UI-facing feature, no exception)
+
+Widget tests run against fakes (in-memory repositories, seeded data, no real network) and prove
+the code's *logic* is right. They do not prove the feature works, because they don't exercise the
+real data shape (a real Isar database with real history in it, a real HTTP response from the real
+API, real generated `fromJson`/`toJson` code) or the real rendered pixels. This bit the
+card-binder feature directly: every unit/widget/integration test passed (274/274 at the time), but
+the shipped build crashed every single live TCG card parse (`TcgCard.isarId` going non-final made
+`json_serializable` emit a hard `(json['isarId'] as num).toInt()` cast with no `isarId` key ever
+present in a real API response) and the binder's visual design never matched the approved POC —
+neither gap is visible from a widget test built on fakes, only from looking at a real run.
+
+So, before any UI-facing feature or bugfix doc is marked Done:
+
+- [ ] **Built and installed on a real device or emulator** (`flutter build apk --debug` +
+      `adb install`, or `flutter run`), not just `flutter test`.
+- [ ] **Every AC that describes something visible or interactive has a screenshot or screen
+      recording** from that real run attached to or linked from the doc (a file path under the
+      doc's own directory, e.g. `docs/features/<name>/screenshots/`, is fine - commit the image).
+- [ ] **Device logs were checked for the duration of the manual run**
+      (`adb logcat -d | grep -i flutter`, or the macOS/iOS equivalent) and are clean of exceptions
+      and the app's own `print`-based error paths (e.g. `"Error parsing..."`,
+      `"Error fetching..."`) - these are easy to swallow silently into an empty list or a blank
+      screen, which is exactly what happened here, and a passing widget test over fakes cannot
+      catch it.
+- [ ] **The data used for the manual run is realistic**, not a freshly wiped database - prefer the
+      existing dev device/profile's real history over a clean install, since that's what surfaces
+      gaps like "this never got backfilled for data that predates the feature."
+- [ ] Evidence (screenshot path(s) + the logcat command run + its result) is recorded in the doc's
+      Traceability table or Closing record, same as an automated test name would be.
+
 ### 4.4 Widget tests
 
 - [ ] Each new screen or widget has a test for its main states (empty, loaded, error).

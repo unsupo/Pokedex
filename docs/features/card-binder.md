@@ -1,11 +1,24 @@
 # Card binder view
 
-Status: **Implemented** (2026-10-10). Visual design and page-turn mechanics
-POC'd and approved in direction (see Animation); paper-bend polish
-deliberately deferred and still not built (unchanged from the POC). Per-pocket
-card selection (see below) added after the POC - changes the binder's layout
-unit from "one pocket per caught card" to "one pocket per Pokemon." Its one
-open question (owned-but-unselected visual) is resolved below.
+Status: **Implemented, visual redesign requested and not yet built**
+(2026-10-10). Visual design and page-turn mechanics POC'd and approved in
+direction (see Animation); paper-bend polish deliberately deferred and still
+not built (unchanged from the POC). Per-pocket card selection (see below)
+added after the POC - changes the binder's layout unit from "one pocket per
+caught card" to "one pocket per Pokemon." Its one open question
+(owned-but-unselected visual) is resolved below.
+
+**2026-10-10 follow-up, after seeing it on a real device:** the shipped
+Flutter build does not read as a binder at all - confirmed by screenshot
+against the approved POC, see "Visual redesign" below. This was invisible to
+every automated test (all were green) because none of them render real
+pixels against the full-screen layout the way a live run does, and because
+every pocket on the page tested happened to be empty (itself downstream of
+the parsing bug in
+[tcg-card-json-parsing-regression.md](tcg-card-json-parsing-regression.md) -
+fixed separately, but that fix alone does not address the visual gap below).
+The redesign is specified but **not implemented yet** - see Status in that
+section.
 
 All data-model/behavioral ACs (1-10, 13, 14) have a passing automated test.
 AC11/AC12 (the page-turn animation itself) are implemented per the Animation
@@ -274,6 +287,102 @@ An icon button, top-right of `PokemonDetailsScreen`'s Cards tab, opens
 | 12 | Structural by construction: `BinderSpine` is a sibling `Stack` child in `BinderPageTurner`, never inside the turning leaf's subtree - manual-check item (no automated geometry assertion; see Status) |
 | 13 | `test/services/local/card_binder_persistence_test.dart` "AC13: saving the same card id/selection twice upserts..." (both `TcgCard` and `BinderCardSelection`) |
 | 14 | `card_binder_persistence_test.dart` "AC14: a selection saved for one profile is invisible to another" + `test/services/tcg_card_repository_test.dart` "AC14: only the given profile's caught cards are returned" + `card_binder_provider_test.dart` "AC14: a second profile never sees..." |
+
+## Visual redesign (2026-10-10 follow-up)
+
+Status: **Open - specified, not implemented.** Blocked on live device access
+(phone disconnected this session before implementation started); do not mark
+any AC in this section Done without the screenshot evidence §4.3.1 of
+`docs/ACCEPTANCE_CHECKLIST.md` requires.
+
+### What's actually on screen today
+
+`docs/features/card-binder/screenshots/binder-page1-before-fix.png` -
+page 1, taken live off the dev device. Note: taken while every pocket on
+this page happened to be empty (the JSON-parsing regression - see
+`tcg-card-json-parsing-regression.md`), so this screenshot does not show the
+`_SleeveCard` state at all, only `_EmptyPocket`. Confirmed gaps, comparing
+this against the approved POC (same colors/gradients were supposed to carry
+over per the original doc's "Proof of concept" section):
+
+1. **No left page at all on the binder's first spread.** `BinderPageTurner.
+   _buildPage` returns a bare `SizedBox.expand()` for `pageIndex < 0`
+   (`lib/widgets/binder/binder_page_turner.dart:180-185`) - deliberate (there
+   genuinely is no page before page 0), but it renders as nothing, so the
+   `Scaffold`'s flat `backgroundColor` (`0xFF3A3530`) shows through as a huge
+   featureless dark rectangle covering half the screen. A real binder's
+   inside-front-cover isn't blank void; it's lining material.
+2. **The spine and page read as flat vector shapes, not a 3D object.**
+   `BinderSpine` does have gradients in code
+   (`lib/widgets/binder/binder_spine.dart`) but at the ~28px width it
+   renders at, they're too subtle to register as pleather texture or
+   metallic rings - they read as a thin grey bar with three flat dots. The
+   page itself (`BinderPageGrid`) is a single flat cream `Container` with no
+   shadow, no texture, no edge highlight - nothing suggesting paper
+   thickness or a page sitting slightly above the one beneath it.
+3. **No page-bend/curl** - already known and explicitly deferred in the
+   Animation section above; restated here only because it's part of the
+   same "doesn't read as a physical object" complaint.
+4. Overall: the current build looks like placeholder boxes in a binder-brown
+   frame, not "a zipper binder with metal 3 rings and cards [that] change
+   slightly when they are in the sleeve" (the original request) or the
+   POC that was approved in direction.
+
+### New goal
+
+Make the binder screen read as an actual 3D object on screen - not just
+correct colors, but visible depth: pages that look stacked and slightly
+raised off each other, a spine that reads as a rounded, lit cylinder/strip
+rather than a flat rectangle, rings with a real specular highlight, and a
+page-turn that looks like it's rotating a physical sheet (perspective
+foreshortening alone, already in the code via `Transform`'s
+`Matrix4..setEntry(3, 2, 0.001)`, is not reading as "3D" per the user's
+on-device reaction - needs stronger depth cues: drop shadows under the
+turning leaf, a shadow the spine casts onto both pages, graduated shading
+across the page grid itself).
+
+### Proposed approach (not yet built - needs a fresh POC pass before Flutter work)
+
+Do not jump straight to Flutter changes - the original POC-first process
+this feature started with is exactly right, and this time the POC needs to
+be checked against a phone-width screenshot before it's "approved," not just
+against a desktop browser:
+
+1. New HTML/CSS/JS POC iteration (same artifact-based approach as the
+   original), this time explicitly targeting phone width (~400-430px) as
+   the primary viewport, not desktop - the original POC was approved in a
+   desktop browser and the gap only became visible at real phone width.
+2. Add the depth cues above: box-shadow under the spine and under each page
+   edge, a subtle `radial-gradient`/highlight across the page surface (not
+   flat cream), a visible shadow cast by the turning leaf onto the page
+   beneath it during the turn.
+3. Fix the "no left page on spread 1" gap - render a static inside-cover
+   texture (reuse the spine's pleather gradient, no pockets) instead of
+   `SizedBox.expand()`, so there's never a bare rectangle of raw background.
+4. Only after that POC is screenshotted at phone width and approved: port
+   to `BinderSpine`/`BinderPageGrid`/`BinderPageTurner`/`BinderPocketWidget`.
+
+### Acceptance criteria
+
+15. The binder's first spread (page 0) never shows raw `Scaffold`
+    background - the area to the left of the spine has its own static
+    texture/finish, not an empty box.
+16. The spine visibly reads as a raised, lit object (not a flat rectangle)
+    at the phone screen size actually used to view it - confirmed by a
+    screenshot, not just by the gradient existing in source.
+17. The page surface shows visible depth (shadow/highlight suggesting
+    stacked paper), confirmed the same way.
+18. A page turn shows a shadow cast by the moving leaf onto the page
+    beneath it, growing/shrinking plausibly with the turn's progress.
+19. All of the above hold at the actual phone width used for manual
+    verification (not just a wide simulator window) - screenshot evidence
+    required per §4.3.1.
+
+### Traceability
+
+| AC | Evidence |
+|---|---|
+| 15-19 | **Not started.** Each needs a before/after screenshot pair under `docs/features/card-binder/screenshots/`, taken on the real device per §4.3.1 of `docs/ACCEPTANCE_CHECKLIST.md`, plus the new POC artifact's link once built. None of these are unit/widget-testable - they are purely visual. |
 
 ## Open questions
 

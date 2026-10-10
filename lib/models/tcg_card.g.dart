@@ -12371,11 +12371,10 @@ TcgCard _$TcgCardFromJson(Map<String, dynamic> json) => TcgCard(
           ? null
           : CardMarket.fromJson(json['cardmarket'] as Map<String, dynamic>),
       flavorText: json['flavorText'] as String?,
-    )..isarId = (json['isarId'] as num).toInt();
+    );
 
 Map<String, dynamic> _$TcgCardToJson(TcgCard instance) => <String, dynamic>{
       'id': instance.id,
-      'isarId': instance.isarId,
       'name': instance.name,
       'supertype': instance.supertype,
       'subtypes': instance.subtypes,

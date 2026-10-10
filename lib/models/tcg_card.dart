@@ -18,6 +18,19 @@ class TcgCard {
   // Not final: Isar must be able to assign the stored id when it reads a row
   // back, or a later put would insert a duplicate instead of updating - the
   // same upsert footgun already hit and fixed for CaughtTcgCard.isarId.
+  //
+  // @JsonKey excluded: making this non-final (above) turned it from an
+  // optional `Id?` into a required `Id` as far as json_serializable is
+  // concerned, so the generated fromJson started doing a hard
+  // `(json['isarId'] as num).toInt()` cast. The real PokemonTCG API response
+  // never has an "isarId" key, so that cast threw `type 'Null' is not a
+  // subtype of type 'num'` for every single card, on every fetch - silently
+  // caught per-card in pokemon_tcg_api_service.dart, so it surfaced as an
+  // empty card list (blank Cards tab, empty binder) rather than a visible
+  // error. isarId is a local Isar primary key, never part of the API's JSON
+  // shape, so it must never round-trip through fromJson/toJson at all - see
+  // docs/features/tcg-card-json-parsing-regression.md.
+  @JsonKey(includeFromJson: false, includeToJson: false)
   Id isarId = Isar.autoIncrement;
   final String? name;
   final String? supertype;

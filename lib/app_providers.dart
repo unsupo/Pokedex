@@ -1,3 +1,5 @@
+import 'package:pokedex_app/services/binder_repository.dart';
+import 'package:pokedex_app/services/card_binder_provider.dart';
 import 'package:pokedex_app/services/game_catalog.dart';
 import 'package:pokedex_app/services/local/local_service.dart';
 import 'package:pokedex_app/services/pokemon_api_provider.dart';
@@ -5,6 +7,7 @@ import 'package:pokedex_app/services/pokemon_service.dart';
 import 'package:pokedex_app/services/profile_provider.dart';
 import 'package:pokedex_app/services/scope_provider.dart';
 import 'package:pokedex_app/services/tcg_api_provider.dart';
+import 'package:pokedex_app/services/tcg_card_repository.dart';
 import 'package:pokedex_app/services/tcg_service.dart';
 import 'package:pokedex_app/services/ui_state_provider.dart';
 import 'package:provider/provider.dart';
@@ -37,5 +40,11 @@ List<SingleChildWidget> buildAppProviders({
             context.read<ScopeProvider>(),
             GameCatalog(pokemonService))),
     ChangeNotifierProvider(create: (_) => UiStateProvider(localService)),
+    ChangeNotifierProvider(
+        create: (context) => CardBinderProvider(
+            LocalServiceBinderRepository(
+                localService, DefaultTcgCardRepository(tcgService, localService)),
+            context.read<ProfileProvider>())
+          ..load()),
   ];
 }

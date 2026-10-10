@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import 'package:pokedex_app/models/binder_card_selection.dart';
 import 'package:pokedex_app/models/profile.dart';
+import 'package:pokedex_app/models/tcg_card.dart';
+import 'package:pokedex_app/services/binder_repository.dart';
 import 'package:pokedex_app/services/io/csv_transport.dart';
 import 'package:pokedex_app/services/profiles/active_profile_store.dart';
 import 'package:pokedex_app/services/profiles/profile_repository.dart';
@@ -97,4 +100,47 @@ class InMemoryScopeStore implements ScopeStore {
   @override
   Future<void> write(int profileId, String scopeKey) async =>
       stored[profileId] = scopeKey;
+}
+
+/// In-memory [BinderRepository]. Seed [caughtCardsByProfile] with each
+/// profile's owned cards (their display data doubles as "cached"); omit an
+/// id from there while still "owning" it (see [markOwnedWithoutData]) to
+/// simulate the no-cached-data edge case.
+class InMemoryBinderRepository implements BinderRepository {
+  final Map<int, List<TcgCard>> caughtCardsByProfile = {};
+  final Map<int, Set<String>> _extraOwnedIdsByProfile = {};
+  final Map<int, List<BinderCardSelection>> _selectionsByProfile = {};
+
+  /// Marks [cardId] as owned by [profileId] without giving it cached
+  /// [TcgCard] data - the "selected but not cached yet" edge case.
+  void markOwnedWithoutData(int profileId, String cardId) {
+    _extraOwnedIdsByProfile.putIfAbsent(profileId, () => {}).add(cardId);
+  }
+
+  @override
+  Future<List<TcgCard>> getCaughtCardsForProfile(int profileId) async =>
+      List.of(caughtCardsByProfile[profileId] ?? const []);
+
+  @override
+  Future<Set<String>> getCaughtCardIdsForProfile(int profileId) async => {
+        ...(caughtCardsByProfile[profileId] ?? const [])
+            .map((c) => c.id!),
+        ...(_extraOwnedIdsByProfile[profileId] ?? const {}),
+      };
+
+  @override
+  Future<List<BinderCardSelection>> getSelectionsForProfile(
+          int profileId) async =>
+      List.of(_selectionsByProfile[profileId] ?? const []);
+
+  @override
+  Future<void> setSelection(int profileId, int pokemonId, String cardId) async {
+    final selections = _selectionsByProfile.putIfAbsent(profileId, () => []);
+    selections.removeWhere((s) => s.pokemonId == pokemonId);
+    selections.add(BinderCardSelection(
+      profileId: profileId,
+      pokemonId: pokemonId,
+      selectedCardId: cardId,
+    ));
+  }
 }

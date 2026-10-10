@@ -20,6 +20,7 @@ import '../../models/pokeapi/pokemon_details.dart';
 import '../../models/pokeapi/pokemon_species.dart';
 import '../../models/pokeapi/stat.dart';
 import '../../models/pokeapi/utility.dart';
+import '../../models/binder_card_selection.dart';
 import '../../models/caught_pokemon.dart';
 import '../../models/profile.dart';
 import '../../models/tcg_card.dart';
@@ -209,5 +210,21 @@ abstract class LocalService {
   /// Upserts by (profileId, cardId), for a batched import.
   Future<void> saveAllCaughtTcgCards(List<CaughtTcgCard> caughtTcgCards);
   Future<List<CaughtTcgCard>> getCaughtTcgCardsForProfile(int profileId);
+  //endregion
+
+  // region TCG Card cache (display data - see docs/features/card-binder.md)
+  /// Write-through cache of full card data (image, name, ...), keyed by
+  /// [TcgCard.id]. Upserts by id.
+  Future<void> saveAllTcgCards(List<TcgCard> cards);
+  Future<List<TcgCard>> getCachedTcgCardsByIds(List<String> ids);
+  //endregion
+
+  // region Card binder selections (see docs/features/card-binder.md)
+  Future<BinderCardSelection?> getBinderSelection(int profileId, int pokemonId);
+  /// Upserts by (profileId, pokemonId).
+  Future<void> saveBinderSelection(BinderCardSelection selection);
+  /// The binder screen needs every selection for a profile at once, not one
+  /// Pokemon at a time.
+  Future<List<BinderCardSelection>> getBinderSelectionsForProfile(int profileId);
   //endregion
 }

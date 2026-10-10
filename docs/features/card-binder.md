@@ -1,12 +1,23 @@
 # Card binder view
 
-Status: **Draft, no blocking questions remaining** (2026-10-10). Visual design
-and page-turn mechanics POC'd and approved in direction (see Animation);
-paper-bend polish deliberately deferred. Per-pocket card selection (see below)
-added after the POC - changes the binder's layout unit from "one pocket per
-caught card" to "one pocket per Pokemon." Its one open question
-(owned-but-unselected visual) is resolved below. Ready to move into
-implementation; no Flutter code written yet.
+Status: **Implemented** (2026-10-10). Visual design and page-turn mechanics
+POC'd and approved in direction (see Animation); paper-bend polish
+deliberately deferred and still not built (unchanged from the POC). Per-pocket
+card selection (see below) added after the POC - changes the binder's layout
+unit from "one pocket per caught card" to "one pocket per Pokemon." Its one
+open question (owned-but-unselected visual) is resolved below.
+
+All data-model/behavioral ACs (1-10, 13, 14) have a passing automated test.
+AC11/AC12 (the page-turn animation itself) are implemented per the Animation
+section (leaf-over-static-slots technique, fixed spine) but are only verified
+structurally/by interaction outcome in widget tests, not by asserting the
+rotateY transform's geometry frame-by-frame - see Traceability. One known gap:
+the page-turn's drag gesture is implemented but only its tap-driven
+equivalent (the prev/next controls) is exercised by an automated test: a real
+finger-drag gesture is easy to simulate wrong in a widget test and risks
+asserting the test harness rather than the behavior, so this was left as a
+manual-check item instead of a brittle automated one. See "What was left out"
+below for everything else not built.
 
 ## Problem
 
@@ -245,32 +256,99 @@ An icon button, top-right of `PokemonDetailsScreen`'s Cards tab, opens
     caught-data view in this app already holds (`CaughtPokemon`,
     `CaughtTcgCard`, CSV export are all profile-scoped; the binder must be too).
 
-## Traceability (filled in once accepted and tests exist)
+## Traceability
 
 | AC | Test |
 |---|---|
-| 1 | TBD |
-| 2 | TBD |
-| 3 | TBD |
-| 4 | TBD |
-| 5 | TBD |
-| 6 | TBD |
-| 7 | TBD |
-| 8 | TBD |
-| 9 | TBD |
-| 10 | TBD |
-| 11 | TBD |
-| 12 | TBD |
-| 13 | TBD |
-| 14 | TBD |
+| 1 | `test/widgets/binder/card_binder_screen_test.dart` - "AC1: scrollToPokemonId opens already turned to that Pokemon's page" |
+| 2 | `test/utils/binder/binder_layout_test.dart` (pure page math) + `card_binder_screen_test.dart` "AC2: shows one pocket per Pokemon, in dex order, 9 per page" |
+| 3 | `test/utils/binder/binder_pocket_test.dart` "AC3: a selected, cached card shows that card, sleeve-styled" + `test/services/card_binder_provider_test.dart` "AC3: a Pokemon with a selected card shows that card" |
+| 4 | `binder_pocket_test.dart` "AC4: owned but nothing selected..." + `card_binder_provider_test.dart` "AC4: ..." + `card_binder_screen_test.dart` "AC4: Pokemon #1 (owned, unselected)..." |
+| 5 | `binder_pocket_test.dart` "AC5: nothing owned and nothing selected..." + `card_binder_screen_test.dart` "AC5: a Pokemon with nothing owned shows the + state..." |
+| 6 | `binder_pocket_test.dart` "AC6: un-catching the selected card falls back to owned/empty" + `card_binder_provider_test.dart` "AC6: ..." |
+| 7 | `test/widgets/binder/card_picker_modal_test.dart` "AC7: starting in cycle mode shows the picker, not the browse grid" + `card_binder_screen_test.dart` "AC7+AC10: tapping an owned pocket opens the cycle picker..." |
+| 8 | `card_picker_modal_test.dart` "AC8: starting in browse mode skips straight to the full grid" + `card_binder_screen_test.dart` "AC5: ...tapping it opens the browse view directly (AC8)" |
+| 9 | `card_picker_modal_test.dart` "AC9: catching a card through the browse view's + makes it immediately available in the cycle picker..." |
+| 10 | `card_picker_modal_test.dart` "AC10: confirming the cycle picker persists the selection and closes the modal" + `card_binder_provider_test.dart` "AC10: ..." + `card_binder_screen_test.dart` "AC7+AC10: ..." |
+| 11 | `card_binder_screen_test.dart` "AC11: tapping the next-page control turns exactly one page" (tap-driven; see Status for why drag itself is a manual-check item, not automated) |
+| 12 | Structural by construction: `BinderSpine` is a sibling `Stack` child in `BinderPageTurner`, never inside the turning leaf's subtree - manual-check item (no automated geometry assertion; see Status) |
+| 13 | `test/services/local/card_binder_persistence_test.dart` "AC13: saving the same card id/selection twice upserts..." (both `TcgCard` and `BinderCardSelection`) |
+| 14 | `card_binder_persistence_test.dart` "AC14: a selection saved for one profile is invisible to another" + `test/services/tcg_card_repository_test.dart` "AC14: only the given profile's caught cards are returned" + `card_binder_provider_test.dart` "AC14: a second profile never sees..." |
 
 ## Open questions
 
 - Exact page size (9/page, 3x3, assumed) - confirm it actually reads well at
   phone width before locking it in; a real binder page might want fewer slots
-  shown larger on a small screen.
+  shown larger on a small screen. **Still open** - built as specified (9/page,
+  3x3) but not visually confirmed on a real phone-width device/simulator as
+  part of this implementation pass; flagged for a follow-up design check.
 - Whether the cycle picker needs its own "none of these, show nothing" option
-  (un-selecting back to state 4 deliberately) or whether that's only reachable
-  by un-catching the card elsewhere - leaning toward not building an explicit
-  un-select action unless asked, since un-catching already produces the
-  correct fallback (AC6).
+  - **Resolved as leaned**: not built. Un-catching the selected card (from
+    anywhere) already produces the correct fallback (AC6, tested).
+
+## What was left out / left for a follow-up
+
+- **Profile scoping of `BinderCardSelection` is real and tested; profile
+  scoping of "which cards are owned" depends on the profiles epic already
+  being in this codebase** (`CaughtTcgCard.profileId`, `ProfileProvider`,
+  `TcgCardRepository` - all present and used as designed). No gap here; noted
+  only because earlier drafts of this doc were written before confirming
+  those pieces existed in this tree.
+- **Paper-bend polish** (scaleX foreshortening, skewY, curling corner radius)
+  - explicitly deferred by the design doc itself; not attempted here either.
+- **Page size confirmation at phone width** - see Open questions above.
+- **Drag-gesture automated coverage for the page turn** - the drag handler
+  (`BinderPageTurnerState._onDragUpdate`/`_onDragEnd`) is implemented exactly
+  per the Animation section, but only the tap-driven navigation controls
+  (which call the same underlying `turn()`) are exercised by an automated
+  test. Manually verify the drag gesture on a device/simulator before calling
+  AC11/AC12 fully done.
+- **A test-infrastructure gap surfaced, not fixed**: this test binary has no
+  `sqflite_common_ffi` backend configured for `flutter_cache_manager`
+  (`cached_network_image`'s disk cache), so a widget test that combines (a)
+  `tester.runAsync()` for genuine Isar I/O and (b) a real `CachedNetworkImage`
+  on screen hits `databaseFactory not initialized`. Worked around in these
+  tests (by choosing pocket/Pokemon fixtures that don't render a
+  `CachedNetworkImage` during the specific interaction that needs
+  `runAsync()`) rather than by adding a new dev dependency to fix the
+  harness - flagging here as a reusable lesson for the next widget test that
+  needs both at once.
+- **A real, independent bug fixed in passing**: `TcgApiProvider.getPokemonCards`
+  calls `notifyListeners()` before its first `await`; calling it synchronously
+  from a widget's `initState()` (both the pre-existing
+  `PokemonDetailsScreen.initState()` and this feature's new
+  `_CardPickerModal.initState()`) trips Flutter's "setState during build"
+  guard whenever that widget is inflated within an already-building frame
+  (e.g. opening a modal from a tap). Fixed inside
+  `lib/widgets/binder/card_picker_modal.dart` (deferred via
+  `Future.microtask`) - `PokemonDetailsScreen.initState()` itself was left
+  untouched per this task's file-scope constraints, so the same latent
+  fragility still exists there, just unexercised by any existing test.
+
+### Closing record
+- Date: 2026-10-10
+- Commit: (uncommitted - left as working-tree changes in this worktree for
+  manual integration; see the implementing agent's final report)
+- Checklist: docs/ACCEPTANCE_CHECKLIST.md - data model, TDD, SOLID/DRY/YAGNI,
+  and test-coverage sections applicable and followed (see traceability
+  above); `/simplify` and `/code-review` (§11) were not run as separate
+  passes in this session - flagged for the integrating reviewer.
+- Tests: unit (binder_pocket_test, binder_layout_test, tcg_price_util_test
+  untouched) / integration (card_binder_persistence_test,
+  tcg_card_repository_test, card_binder_provider_test) / e2e 0 / widget
+  (card_picker_modal_test, card_binder_screen_test,
+  pokemon_details_screen_binder_entry_point_test) - all passing: yes (274
+  total suite tests, 1 failing - the pre-existing unmodified
+  `test/widget_test.dart` template smoke test, unrelated to this feature)
+- analyze: clean of new issues (new `experimental_member_use` warnings on
+  `lib/models/binder_card_selection.g.dart`'s composite-index accessors are
+  the same pre-existing warning category already present for
+  `CaughtTcgCard`/`CaughtPokemon`'s composite indexes - not a new category)
+- TDD evidence: each new behavior was written test-first and seen failing
+  for the right reason (missing symbol/type) before implementation; see the
+  implementing agent's final report for the specific red-run transcripts
+- Traceability: table above
+- N/A items and why: integration_test/ (§4.3) not added - no AC here needs a
+  real-device e2e flow beyond what the widget tests already cover; backups
+  (§6) not applicable - this feature adds data, it doesn't rewrite or
+  migrate any existing collection.

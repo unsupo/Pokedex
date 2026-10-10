@@ -21,6 +21,7 @@ import 'package:pokedex_app/models/pokeapi/pokemon.dart';
 import 'package:pokedex_app/models/pokeapi/pokemon_species.dart';
 import 'package:pokedex_app/models/pokeapi/stat.dart';
 import 'package:pokedex_app/models/pokeapi/utility.dart';
+import 'package:pokedex_app/models/binder_card_selection.dart';
 import 'package:pokedex_app/models/caught_pokemon.dart';
 import 'package:pokedex_app/models/profile.dart';
 import 'package:pokedex_app/models/tcg_card.dart';
@@ -104,6 +105,8 @@ class IsarService implements LocalService {
         StatSchema,
         LanguageSchema,
         CaughtTcgCardSchema,
+        TcgCardSchema,
+        BinderCardSelectionSchema,
       ],
       directory: dir.path,
     );
@@ -1306,6 +1309,62 @@ class IsarService implements LocalService {
   }
   //endregion
 
+  // region TCG Card cache
+  @override
+  Future<void> saveAllTcgCards(List<TcgCard> cards) async {
+    await _isarTransaction<void>((isar) async {
+      await isar.writeTxn(() async {
+        await isar.tcgCards.putAll(cards);
+      });
+    });
+  }
+
+  @override
+  Future<List<TcgCard>> getCachedTcgCardsByIds(List<String> ids) async {
+    return await _isarTransaction<List<TcgCard>>((isar) async {
+      if (ids.isEmpty) return [];
+      return await isar.tcgCards
+          .filter()
+          .anyOf(ids, (q, String id) => q.idEqualTo(id))
+          .findAll();
+    });
+  }
+  //endregion
+
+  // region Card binder selections
+  @override
+  Future<BinderCardSelection?> getBinderSelection(
+      int profileId, int pokemonId) async {
+    return await _isarTransaction<BinderCardSelection?>((isar) async {
+      return await isar.binderCardSelections
+          .filter()
+          .profileIdEqualTo(profileId)
+          .pokemonIdEqualTo(pokemonId)
+          .findFirst();
+    });
+  }
+
+  @override
+  Future<void> saveBinderSelection(BinderCardSelection selection) async {
+    await _isarTransaction<void>((isar) async {
+      await isar.writeTxn(() async {
+        await isar.binderCardSelections.put(selection);
+      });
+    });
+  }
+
+  @override
+  Future<List<BinderCardSelection>> getBinderSelectionsForProfile(
+      int profileId) async {
+    return await _isarTransaction<List<BinderCardSelection>>((isar) async {
+      return await isar.binderCardSelections
+          .filter()
+          .profileIdEqualTo(profileId)
+          .findAll();
+    });
+  }
+  //endregion
+
   @override
   Future<void> clearCache() async {
     await _isarTransaction<void>((isar) async {
@@ -1356,6 +1415,8 @@ class IsarService implements LocalService {
         await isar.stats.clear();
         await isar.languages.clear();
         await isar.caughtTcgCards.clear();
+        await isar.tcgCards.clear();
+        await isar.binderCardSelections.clear();
       });
     });
   }

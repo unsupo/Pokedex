@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:pokedex_app/models/pokeapi/moves.dart';
 import 'package:pokedex_app/models/pokeapi/pokemon_details.dart' hide Icons;
 import 'package:pokedex_app/screens/ability_screen.dart';
+import 'package:pokedex_app/screens/card_binder_screen.dart';
 import 'package:pokedex_app/services/pokemon_api_provider.dart';
 import 'package:pokedex_app/services/tcg_api_provider.dart';
 import 'package:pokedex_app/services/ui_state_provider.dart';
@@ -344,6 +345,24 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
                       ),
                 leadingWidth: previousPokemon != null ? 100 : 56,
                 actions: [
+                  // Entry point into the card binder (see
+                  // docs/features/card-binder.md) - only on the TCG Details
+                  // tab, where it opens already turned to this Pokemon's page.
+                  if (_tabController.index == 1)
+                    IconButton(
+                      key: const Key('open-card-binder'),
+                      tooltip: 'Open card binder',
+                      icon: const Icon(Icons.collections_bookmark_outlined),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => CardBinderScreen(
+                                scrollToPokemonId: widget.pokemonId),
+                          ),
+                        );
+                      },
+                    ),
                   if (nextPokemon != null)
                     GestureDetector(
                       behavior: HitTestBehavior.opaque,

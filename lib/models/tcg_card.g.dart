@@ -147,7 +147,21 @@ const TcgCardSchema = CollectionSchema(
   deserialize: _tcgCardDeserialize,
   deserializeProp: _tcgCardDeserializeProp,
   idName: r'isarId',
-  indexes: {},
+  indexes: {
+    r'id': IndexSchema(
+      id: -3268401673993471357,
+      name: r'id',
+      unique: true,
+      replace: true,
+      properties: [
+        IndexPropertySchema(
+          name: r'id',
+          type: IndexType.hash,
+          caseSensitive: true,
+        )
+      ],
+    )
+  },
   links: {},
   embeddedSchemas: {
     r'CardAbility': CardAbilitySchema,
@@ -524,6 +538,7 @@ TcgCard _tcgCardDeserialize(
       WeaknessResistance(),
     ),
   );
+  object.isarId = id;
   return object;
 }
 
@@ -626,14 +641,70 @@ P _tcgCardDeserializeProp<P>(
 }
 
 Id _tcgCardGetId(TcgCard object) {
-  return object.isarId ?? Isar.autoIncrement;
+  return object.isarId;
 }
 
 List<IsarLinkBase<dynamic>> _tcgCardGetLinks(TcgCard object) {
   return [];
 }
 
-void _tcgCardAttach(IsarCollection<dynamic> col, Id id, TcgCard object) {}
+void _tcgCardAttach(IsarCollection<dynamic> col, Id id, TcgCard object) {
+  object.isarId = id;
+}
+
+extension TcgCardByIndex on IsarCollection<TcgCard> {
+  Future<TcgCard?> getById(String? id) {
+    return getByIndex(r'id', [id]);
+  }
+
+  TcgCard? getByIdSync(String? id) {
+    return getByIndexSync(r'id', [id]);
+  }
+
+  Future<bool> deleteById(String? id) {
+    return deleteByIndex(r'id', [id]);
+  }
+
+  bool deleteByIdSync(String? id) {
+    return deleteByIndexSync(r'id', [id]);
+  }
+
+  Future<List<TcgCard?>> getAllById(List<String?> idValues) {
+    final values = idValues.map((e) => [e]).toList();
+    return getAllByIndex(r'id', values);
+  }
+
+  List<TcgCard?> getAllByIdSync(List<String?> idValues) {
+    final values = idValues.map((e) => [e]).toList();
+    return getAllByIndexSync(r'id', values);
+  }
+
+  Future<int> deleteAllById(List<String?> idValues) {
+    final values = idValues.map((e) => [e]).toList();
+    return deleteAllByIndex(r'id', values);
+  }
+
+  int deleteAllByIdSync(List<String?> idValues) {
+    final values = idValues.map((e) => [e]).toList();
+    return deleteAllByIndexSync(r'id', values);
+  }
+
+  Future<Id> putById(TcgCard object) {
+    return putByIndex(r'id', object);
+  }
+
+  Id putByIdSync(TcgCard object, {bool saveLinks = true}) {
+    return putByIndexSync(r'id', object, saveLinks: saveLinks);
+  }
+
+  Future<List<Id>> putAllById(List<TcgCard> objects) {
+    return putAllByIndex(r'id', objects);
+  }
+
+  List<Id> putAllByIdSync(List<TcgCard> objects, {bool saveLinks = true}) {
+    return putAllByIndexSync(r'id', objects, saveLinks: saveLinks);
+  }
+}
 
 extension TcgCardQueryWhereSort on QueryBuilder<TcgCard, TcgCard, QWhere> {
   QueryBuilder<TcgCard, TcgCard, QAfterWhere> anyIsarId() {
@@ -707,6 +778,69 @@ extension TcgCardQueryWhere on QueryBuilder<TcgCard, TcgCard, QWhereClause> {
         upper: upperIsarId,
         includeUpper: includeUpper,
       ));
+    });
+  }
+
+  QueryBuilder<TcgCard, TcgCard, QAfterWhereClause> idIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IndexWhereClause.equalTo(
+        indexName: r'id',
+        value: [null],
+      ));
+    });
+  }
+
+  QueryBuilder<TcgCard, TcgCard, QAfterWhereClause> idIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IndexWhereClause.between(
+        indexName: r'id',
+        lower: [null],
+        includeLower: false,
+        upper: [],
+      ));
+    });
+  }
+
+  QueryBuilder<TcgCard, TcgCard, QAfterWhereClause> idEqualTo(String? id) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IndexWhereClause.equalTo(
+        indexName: r'id',
+        value: [id],
+      ));
+    });
+  }
+
+  QueryBuilder<TcgCard, TcgCard, QAfterWhereClause> idNotEqualTo(String? id) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'id',
+              lower: [],
+              upper: [id],
+              includeUpper: false,
+            ))
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'id',
+              lower: [id],
+              includeLower: false,
+              upper: [],
+            ));
+      } else {
+        return query
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'id',
+              lower: [id],
+              includeLower: false,
+              upper: [],
+            ))
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'id',
+              lower: [],
+              upper: [id],
+              includeUpper: false,
+            ));
+      }
     });
   }
 }
@@ -1694,24 +1828,8 @@ extension TcgCardQueryFilter
     });
   }
 
-  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> isarIdIsNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const FilterCondition.isNull(
-        property: r'isarId',
-      ));
-    });
-  }
-
-  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> isarIdIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const FilterCondition.isNotNull(
-        property: r'isarId',
-      ));
-    });
-  }
-
   QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> isarIdEqualTo(
-      Id? value) {
+      Id value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
         property: r'isarId',
@@ -1721,7 +1839,7 @@ extension TcgCardQueryFilter
   }
 
   QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> isarIdGreaterThan(
-    Id? value, {
+    Id value, {
     bool include = false,
   }) {
     return QueryBuilder.apply(this, (query) {
@@ -1734,7 +1852,7 @@ extension TcgCardQueryFilter
   }
 
   QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> isarIdLessThan(
-    Id? value, {
+    Id value, {
     bool include = false,
   }) {
     return QueryBuilder.apply(this, (query) {
@@ -1747,8 +1865,8 @@ extension TcgCardQueryFilter
   }
 
   QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> isarIdBetween(
-    Id? lower,
-    Id? upper, {
+    Id lower,
+    Id upper, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
@@ -12253,10 +12371,11 @@ TcgCard _$TcgCardFromJson(Map<String, dynamic> json) => TcgCard(
           ? null
           : CardMarket.fromJson(json['cardmarket'] as Map<String, dynamic>),
       flavorText: json['flavorText'] as String?,
-    );
+    )..isarId = (json['isarId'] as num).toInt();
 
 Map<String, dynamic> _$TcgCardToJson(TcgCard instance) => <String, dynamic>{
       'id': instance.id,
+      'isarId': instance.isarId,
       'name': instance.name,
       'supertype': instance.supertype,
       'subtypes': instance.subtypes,

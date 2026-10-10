@@ -50,6 +50,11 @@ class TcgApiProvider with ChangeNotifier {
     try {
       final tcgCards = await _tcgRepository.getCardsByNationalDexId(id);
       await loadCaughtStatus(tcgCards);
+      // Write-through cache: keeps full card display data (image, name, ...)
+      // available for the card binder even for a Pokemon whose Cards tab
+      // wasn't opened this session - purely additive, doesn't change this
+      // fetch/read path itself. See docs/features/card-binder.md.
+      await _tcgRepository.cacheCards(tcgCards);
       _pokemon[id] = tcgCards; // Update _pokemon only after successful fetch
       return tcgCards;
     } catch (error) {

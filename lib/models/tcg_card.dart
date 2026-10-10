@@ -8,8 +8,17 @@ part 'tcg_card.g.dart';
 @collection
 @JsonSerializable()
 class TcgCard {
+  // Unique + replace:true so caching the same card id twice (e.g. once from
+  // a live fetch, once more from a later one) upserts instead of creating a
+  // duplicate row - see the isarId note just below, and the regression test
+  // in test/services/local/card_binder_persistence_test.dart.
+  @Index(unique: true, replace: true)
   final String? id;
-  final Id? isarId = Isar.autoIncrement;
+
+  // Not final: Isar must be able to assign the stored id when it reads a row
+  // back, or a later put would insert a duplicate instead of updating - the
+  // same upsert footgun already hit and fixed for CaughtTcgCard.isarId.
+  Id isarId = Isar.autoIncrement;
   final String? name;
   final String? supertype;
   final List<String>? subtypes;

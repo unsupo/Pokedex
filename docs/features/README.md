@@ -8,7 +8,7 @@ were once two.
 
 | Doc | Status | Summary |
 |---|---|---|
-| [card-binder.md](card-binder.md) | Draft - layout/animation POC'd and approved in direction; one open question (owned-but-unselected pocket look) blocks implementation | 3-ring binder, one pocket per Pokemon showing a profile-selected owned card, cycle/add modal |
-| [home-recenter.md](home-recenter.md) | Draft | Home (and back) re-centers the Pokedex list on the last-viewed Pokemon |
-| [list-sorting.md](list-sorting.md) | Draft | Sort control: name/dex, ascending/descending |
-| [search-fuzzy-and-stage.md](search-fuzzy-and-stage.md) | Draft | Fuzzy multi-field search (name/id/type/move/ability, no prefix) + `stage:` evolution-stage modifier |
+| [card-binder.md](card-binder.md) | Implemented (built by a parallel agent; merged and verified) | 3-ring binder, one pocket per Pokemon showing a profile-selected owned card, cycle/add modal |
+| [home-recenter.md](home-recenter.md) | Implemented (built by a parallel agent; merged and verified) | Home (and back) re-centers the Pokedex list on the last-viewed Pokemon |
+| [list-sorting.md](list-sorting.md) | Done (built by a parallel agent; merged and verified) | Sort control: name/dex, ascending/descending |
+| [search-fuzzy-and-stage.md](search-fuzzy-and-stage.md) | Done (built by a parallel agent; merged and verified) | Fuzzy multi-field search (name/id/type/move/ability, no prefix) + `stage:` evolution-stage modifier |

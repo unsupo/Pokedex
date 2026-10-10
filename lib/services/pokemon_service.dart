@@ -29,9 +29,16 @@ import '../models/pokeapi/utility.dart';
 /// real HTTP calls just to get a constructible stand-in.
 abstract class PokemonService {
   Future<List<Pokemon>> getPokemonList();
-  Future<PokemonDetails> getPokemonDetails(int id);
-  Future<PokemonSpecies> getPokemonSpecies(int id, {bool force = false});
-  Future<EvolutionChain?> getEvolutionChain(int id, {bool? batch});
+  // `priority` routes the request through a separate, smaller concurrency
+  // lane instead of the bulk background-sync queue - see
+  // PokeApiPokemonService for why. Use it when a user is actively waiting on
+  // this specific fetch (e.g. viewing that Pokemon's details screen right
+  // now), not for routine background population.
+  Future<PokemonDetails> getPokemonDetails(int id, {bool priority = false});
+  Future<PokemonSpecies> getPokemonSpecies(int id,
+      {bool force = false, bool priority = false});
+  Future<EvolutionChain?> getEvolutionChain(int id,
+      {bool? batch, bool priority = false});
   Future<List<EvolutionChainUrl?>> getAllEvolutionChainUrls();
   Future<List<EvolutionChain?>> getAllEvolutionChains();
 
@@ -59,6 +66,8 @@ abstract class PokemonService {
   Future<Pokedex> getPokedex(int id);
   Future<Version> getVersion(int id);
   Future<VersionGroup> getVersionGroup(int id);
+  /// Ids of every version group, used to build the game list.
+  Future<List<int>> getVersionGroupIds();
   // endregion
 
   // region Items
@@ -81,7 +90,7 @@ abstract class PokemonService {
   // endregion
 
   // region Moves
-  Future<Move> getMove(int id);
+  Future<Move> getMove(int id, {bool priority = false});
   Future<MoveAilment> getMoveAilment(int id);
   Future<MoveBattleStyle> getMoveBattleStyle(int id);
   Future<MoveCategory> getMoveCategory(int id);

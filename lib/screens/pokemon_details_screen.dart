@@ -14,9 +14,13 @@ import '../models/pokeapi/pokemon.dart';
 import '../models/tcg_card.dart';
 
 import '../utils/string_utils.dart';
+import '../utils/tcg_price_util.dart';
 import '../widgets/pokemon_details/evolution_chain_widget.dart';
 import '../widgets/pokemon_details/stat_bar.dart';
 import '../widgets/pokemon_details/type_chart.dart';
+import '../widgets/scope/card_caught_toggle.dart';
+import '../widgets/scope/caught_in_games.dart';
+import '../widgets/scope/caught_toggle.dart';
 import '../widgets/type_pill.dart';
 import 'catch_screen.dart';
 
@@ -34,6 +38,7 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
   late TabController _tabController;
   late Pokemon pokemon;
   late final Future<List<TcgCard>?> _tcgCardsFuture;
+  Offset? _dragStart;
 
   @override
   void initState() {
@@ -48,6 +53,11 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
     _tabController.addListener(_syncTabIndexListener);
     _tcgCardsFuture = Provider.of<TcgApiProvider>(context, listen: false)
         .getPokemonCards(widget.pokemonId);
+    // Jump this Pokemon's own details/species/evolution-chain/moves ahead of
+    // the background bulk-sync queue, instead of waiting for their turn
+    // behind potentially thousands of unrelated pending requests.
+    Provider.of<PokemonApiProvider>(context, listen: false)
+        .ensurePriorityDataLoaded(widget.pokemonId);
   }
 
   void _syncTabIndexListener() {
@@ -60,7 +70,12 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _tabController.index = context.watch<UiStateProvider>().tabIndex;
+    final newIndex = context.watch<UiStateProvider>().tabIndex;
+    if (_tabController.index != newIndex) {
+      _tabController.removeListener(_syncTabIndexListener);
+      _tabController.index = newIndex;
+      _tabController.addListener(_syncTabIndexListener);
+    }
   }
 
   @override
@@ -124,7 +139,10 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
                     ),
                     child: const Center(
-                      child: Icon(Icons.home, color: Colors.white, size: 28),
+                      // This opens the Catch screen, not navigation - it was
+                      // copy-pasted from the "go home" button below and never
+                      // updated, so both ended up showing Icons.home.
+                      child: Icon(Icons.catching_pokemon, color: Colors.white, size: 28),
                     ),
                   ),
                 ),
@@ -132,10 +150,7 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
               Expanded( // Use Expanded for the Pokeball
                 flex: 1,
                 child: GestureDetector(
-                  onTap: () {
-                    Provider.of<PokemonApiProvider>(context, listen: false)
-                        .isCaught(pokemon.id, !pokemon.isCaught);
-                  },
+                  onTap: () => toggleCaught(context, pokemon.id, !pokemon.isCaught),
                   child: Container(
                     decoration: BoxDecoration(
                       color: Theme.of(context).primaryColor,
@@ -262,6 +277,8 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
                       ),
                       width: 28,
                       height: 28,
+                      memCacheWidth: 56,
+                      memCacheHeight: 56,
                     ),
                     const SizedBox(width: 8),
                     Text(
@@ -270,27 +287,28 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
                     ),
                   ],
                 ),
-                leading: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (previousPokemon != null)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8.0),
-                        child: GestureDetector(
-                            onTap: () {
-                              Navigator.pushReplacement(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => PokemonDetailsScreen(
-                                      pokemonId: previousPokemon.id),
-                                ),
-                              );
-                            },
-                            child: Row(children: [
+                leading: previousPokemon == null
+                    ? null
+                    : GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => PokemonDetailsScreen(
+                                  pokemonId: previousPokemon.id),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.only(left: 8.0),
+                          child: Row(
+                            children: [
                               Text(
                                 '#${previousPokemon.id}',
                                 style: TextStyle(fontSize: 12),
                               ),
+                              const SizedBox(width: 4),
                               Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -300,48 +318,53 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
                                     placeholder: (context, url) => SizedBox(
                                       width: 20,
                                       height: 20,
-                                      child: Center(child: CircularProgressIndicator()),
+                                      child: Center(
+                                          child: CircularProgressIndicator()),
                                     ),
                                     errorWidget: (context, url, error) => Icon(
                                       Icons.catching_pokemon,
-                                      // Display Pokeball icon
                                       size: 20,
                                       color: Colors.grey,
                                     ),
                                     width: 20,
+                                    memCacheWidth: 40,
+                                    memCacheHeight: 40,
                                   ),
-                                  SizedBox(height: 4),
+                                  const SizedBox(height: 4),
                                   Text(
                                     capitalizeFirstLetter(
                                         sanitizeName(previousPokemon.name)),
-                                    style: TextStyle(fontSize: 12),
+                                    style: const TextStyle(fontSize: 11),
                                   ),
                                 ],
                               ),
-                            ])),
+                            ],
+                          ),
+                        ),
                       ),
-                  ],
-                ),
                 leadingWidth: previousPokemon != null ? 100 : 56,
                 actions: [
                   if (nextPokemon != null)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8.0),
-                      child: GestureDetector(
-                          onTap: () {
-                            Navigator.pushReplacement(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    PokemonDetailsScreen(pokemonId: nextPokemon.id),
-                              ),
-                            );
-                          },
-                          child: Row(children: [
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                PokemonDetailsScreen(pokemonId: nextPokemon.id),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.only(right: 8.0),
+                        child: Row(
+                          children: [
                             Text(
                               '#${nextPokemon.id}',
                               style: TextStyle(fontSize: 12),
                             ),
+                            const SizedBox(width: 4),
                             Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -351,23 +374,29 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
                                   placeholder: (context, url) => SizedBox(
                                     width: 20,
                                     height: 20,
-                                    child: Center(child: CircularProgressIndicator()),
+                                    child: Center(
+                                        child: CircularProgressIndicator()),
                                   ),
                                   errorWidget: (context, url, error) => Icon(
-                                    Icons.catching_pokemon, // Display Pokeball icon
+                                    Icons.catching_pokemon,
                                     size: 20,
                                     color: Colors.grey,
                                   ),
                                   width: 20,
+                                  memCacheWidth: 40,
+                                  memCacheHeight: 40,
                                 ),
-                                SizedBox(height: 4),
+                                const SizedBox(height: 4),
                                 Text(
-                                  capitalizeFirstLetter(sanitizeName(nextPokemon.name)),
-                                  style: TextStyle(fontSize: 12),
+                                  capitalizeFirstLetter(
+                                      sanitizeName(nextPokemon.name)),
+                                  style: const TextStyle(fontSize: 11),
                                 ),
                               ],
                             ),
-                          ])),
+                          ],
+                        ),
+                      ),
                     ),
                 ],
                 flexibleSpace: FlexibleSpaceBar(
@@ -393,6 +422,8 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
                           color: Colors.grey,
                         ),
                         width: 130,
+                        memCacheWidth: 260,
+                        memCacheHeight: 260,
                       ),
                     ),
                   ),
@@ -412,16 +443,66 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
             ),
           ];
         },
-        body: TabBarView(
-          controller: _tabController,
-          children: [
-            pokemon.isLoadingDetails
-                ? Center(child: CircularProgressIndicator())
-                : pokemon.details != null
-                    ? _buildGameDetailsTab(pokemon)
-                    : Center(child: Text("Details not available")),
-            _buildTcgDetailsTab(context),
-          ],
+        // Horizontal swipe now means "go to another Pokemon," not "switch
+        // tabs" - switching Game Details/TCG Details is tap-only (via the
+        // TabBar above). Swiping right-to-left (leftward) goes to the next
+        // (higher #) Pokemon; swiping left-to-right (rightward) goes to the
+        // previous (lower #) one - matching the standard "swipe left to
+        // advance" convention, independent of which tab is currently active.
+        //
+        // Listener (not GestureDetector.onHorizontalDragEnd) deliberately -
+        // a real finger swipe always has some vertical drift, and a
+        // horizontal-drag GestureDetector competes with NestedScrollView's
+        // vertical scroll recognizer in the gesture arena, so it can lose
+        // that fight on an imperfectly-horizontal real swipe even though a
+        // synthetic, perfectly-horizontal test swipe works fine. Listener
+        // doesn't participate in the arena - it always sees raw pointer
+        // events - so tracking start/end position by hand here is more
+        // reliable than depending on which recognizer the arena picks.
+        body: Listener(
+          onPointerDown: (event) => _dragStart = event.position,
+          onPointerUp: (event) {
+            final start = _dragStart;
+            _dragStart = null;
+            if (start == null) return;
+            final delta = event.position - start;
+            // Require a clearly horizontal, deliberate swipe so an ordinary
+            // vertical scroll (or a diagonal flick) doesn't misfire this.
+            if (delta.dx.abs() < 60 || delta.dx.abs() < delta.dy.abs() * 1.5) {
+              return;
+            }
+            if (delta.dx < 0 && nextPokemon != null) {
+              // Right-to-left (leftward) swipe -> next Pokemon.
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      PokemonDetailsScreen(pokemonId: nextPokemon.id),
+                ),
+              );
+            } else if (delta.dx > 0 && previousPokemon != null) {
+              // Left-to-right (rightward) swipe -> previous Pokemon.
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      PokemonDetailsScreen(pokemonId: previousPokemon.id),
+                ),
+              );
+            }
+          },
+          child: TabBarView(
+            controller: _tabController,
+            physics: const NeverScrollableScrollPhysics(),
+            children: [
+              pokemon.isLoadingDetails
+                  ? Center(child: CircularProgressIndicator())
+                  : pokemon.details != null
+                      ? _buildGameDetailsTab(pokemon)
+                      : Center(child: Text("Details not available")),
+              _buildTcgDetailsTab(context),
+            ],
+          ),
         ),
       ),
     );
@@ -614,6 +695,18 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
               ],
             ),
             _sectionCard(
+              icon: Icons.catching_pokemon,
+              title: 'Caught In',
+              children: [
+                CaughtInGames(
+                    gameNames: context
+                        .watch<PokemonApiProvider>()
+                        .caughtInGameNames(pokemon.id),
+                    gamesLoaded:
+                        context.watch<PokemonApiProvider>().gamesLoaded),
+              ],
+            ),
+            _sectionCard(
               icon: Icons.change_circle_outlined,
               title: 'Evolution Chain',
               children: [_buildEvolutionChainSection(pokemon)],
@@ -714,17 +807,43 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
   }
 
   Widget _buildTcgDetailsTab(BuildContext context) {
-    bool? isLoading =
-        context.watch<TcgApiProvider>().loadingPokemon[widget.pokemonId];
-    if (isLoading == null || isLoading) {
+    final isLoading =
+        context.watch<TcgApiProvider>().loadingPokemon[widget.pokemonId] ?? false;
+    if (isLoading) {
       return Center(child: CircularProgressIndicator());
     }
     return _buildTabScrollView(
       FutureBuilder<List<TcgCard>?>(
           future: _tcgCardsFuture,
           builder: (context, snapshot) {
-            if (!snapshot.hasData || snapshot.data == null) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
               return Center(child: CircularProgressIndicator());
+            } else if (snapshot.hasError || snapshot.data == null) {
+              final apiError = context.read<TcgApiProvider>().error;
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.error_outline, color: Colors.red, size: 48),
+                      SizedBox(height: 8),
+                      Text(
+                        'Failed to load TCG cards.',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      if (apiError != null) ...[
+                        SizedBox(height: 4),
+                        Text(
+                          apiError,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
             } else {
               return GridView.builder(
                 physics: NeverScrollableScrollPhysics(),
@@ -740,8 +859,11 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
                 itemCount: snapshot.data!.length,
                 // Use the length of your data
                 itemBuilder: (context, index) {
+                  final card = snapshot.data![index];
+                  final isCaught = card.isCaught;
+                  final priceEstimate = estimatedCardPrice(card);
                   return Card(
-                    color: (snapshot.data == null ? false : snapshot.data![index].userData?.isCaught??false) ? Colors.blue : Colors.white,
+                    color: isCaught ? Colors.blue : Colors.white,
                     child: Column(
                       children: [
                         Expanded(
@@ -749,17 +871,29 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
                           child: InkWell(
                             // Use InkWell for tap detection
                             onTap: () {
-                              Provider.of<TcgApiProvider>(context, listen: false).setCaught(snapshot.data![index]);
+                              // Owning a card means owning the Pokemon, so
+                              // catching one also catches the Pokemon - but
+                              // only on the way to caught, and only when it
+                              // isn't already (see card_caught_toggle.dart).
+                              toggleCardCaught(
+                                context,
+                                card,
+                                widget.pokemonId,
+                                pokemonAlreadyCaught: context
+                                        .read<PokemonApiProvider>()
+                                        .allPokemon[widget.pokemonId]
+                                        ?.isCaught ??
+                                    false,
+                              );
                             },
                             child: Padding(
                               padding: const EdgeInsets.all(8.0),
-                              // images (and images.large) are nullable on
+                              // images (and images.small) are nullable on
                               // TcgCard - some cards (promos, certain error
                               // cases) come back from the API without an
                               // images object at all, so this can't be
                               // force-unwrapped without crashing the tab.
-                              child: snapshot.data![index].images?.large ==
-                                      null
+                              child: card.images?.small == null
                                   ? const Center(
                                       child: Icon(
                                         Icons.catching_pokemon,
@@ -767,34 +901,41 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
                                         color: Colors.grey,
                                       ),
                                     )
-                                  : Image.network(
-                                      snapshot.data![index].images!.large!,
+                                  // CachedNetworkImage (not Image.network) so
+                                  // card art is cached to disk/memory like
+                                  // every other image in the app - previously
+                                  // reopening this tab re-downloaded every
+                                  // card image from scratch every time.
+                                  : CachedNetworkImage(
+                                      imageUrl: card.images!.small!,
                                       fit: BoxFit.contain,
-                                      loadingBuilder: (BuildContext context,
-                                          Widget child,
-                                          ImageChunkEvent? loadingProgress) {
-                                        if (loadingProgress == null) {
-                                          return child;
-                                        }
-                                        return Center(
-                                          child: CircularProgressIndicator(
-                                            value: loadingProgress
-                                                        .expectedTotalBytes !=
-                                                    null
-                                                ? loadingProgress
-                                                        .cumulativeBytesLoaded /
-                                                    loadingProgress
-                                                        .expectedTotalBytes!
-                                                : null,
-                                          ),
-                                        );
-                                      },
-                                      errorBuilder: (BuildContext context,
-                                          Object error,
-                                          StackTrace? stackTrace) {
-                                        return Icon(Icons.error);
-                                      },
+                                      // Grid cells are ~150-200 logical px
+                                      // wide in this 2-column layout; card
+                                      // art is much larger than that.
+                                      memCacheWidth: 400,
+                                      progressIndicatorBuilder: (context, url,
+                                              progress) =>
+                                          Center(
+                                        child: CircularProgressIndicator(
+                                          value: progress.progress,
+                                        ),
+                                      ),
+                                      errorWidget: (context, url, error) =>
+                                          const Icon(Icons.error),
                                     ),
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+                          child: Text(
+                            priceEstimate ?? 'Price: N/A',
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isCaught ? Colors.white70 : Colors.black54,
                             ),
                           ),
                         ),

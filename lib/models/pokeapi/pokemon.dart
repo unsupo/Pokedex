@@ -4,7 +4,6 @@ import 'package:isar_community/isar.dart';
 import 'package:json_annotation/json_annotation.dart';
 import 'package:pokedex_app/models/pokeapi/evolution_chain.dart';
 import 'package:pokedex_app/models/pokeapi/pokemon_species.dart';
-import 'package:pokedex_app/models/user_data.dart';
 
 import 'pokemon_details.dart';
 
@@ -18,8 +17,11 @@ class Pokemon with ChangeNotifier {
   final String url;
   @ignore
   PokemonDetails? details;
+  /// Transient: whether the current scope has this Pokemon caught. Set by
+  /// PokemonApiProvider, which owns the stored records.
   @ignore
-  UserData? userData;
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  bool isCaught = false;
   @ignore
   EvolutionChain? evolutionChain;
   @ignore
@@ -70,16 +72,7 @@ class Pokemon with ChangeNotifier {
 
   @ignore
   String get imageUrl {
-    return details?.sprites?.other
-        ?.officialArtwork!.frontDefault ??
-        '';
-  }
-  @ignore
-  bool get isCaught {
-    return userData?.isCaught ?? false;
-  }
-  set isCaught(bool isCaught) {
-    userData?.isCaught = isCaught;
+    return details?.sprites?.other?.officialArtwork?.frontDefault ?? '';
   }
 
   // TODO make this come from the api

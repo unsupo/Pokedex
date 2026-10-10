@@ -46,10 +46,28 @@ before Phase 2's harder product question gets locked in.
 | Phase | Adds | Doc |
 |---|---|---|
 | 1 | Multiple profiles, each with independently-scoped caught state | [01-profile-system.md](./01-profile-system.md) |
-| 2 | Per-game-version scoping within a profile | [02-per-game-tracking.md](./02-per-game-tracking.md) |
+| 2 | Scopes within a profile: derived National, manual National, and one per game | [02-per-game-tracking.md](./02-per-game-tracking.md) |
 
-Phase 2 is designed to layer onto Phase 1's schema (add a column + widen an index) rather than
-replace it, specifically so Phase 1 isn't throwaway work.
+Phase 2 is designed to layer onto Phase 1's schema rather than replace it. Phase 1 already writes
+a `scopeKey` column (always `"national"`), so Phase 2 doesn't need a second migration.
+
+## Supporting docs
+
+| Doc | Purpose |
+|---|---|
+| [00-decisions.md](./00-decisions.md) | Decision log (D1–D8) and open questions. Read first. |
+| [03-scope-model.md](./03-scope-model.md) | The scope concept: derived National, manual National, per game. |
+| [04-migration.md](./04-migration.md) | Upgrade path for existing installs, with tests. |
+| [05-csv-io.md](./05-csv-io.md) | CSV format, export scope options, legacy import. |
+| [06-tcg-cards.md](./06-tcg-cards.md) | Cards per profile, no game dimension. |
+| [07-ui.md](./07-ui.md) | Profile switcher, scope selector, details, game picker. |
+| [08-testing.md](./08-testing.md) | Unit, integration, and manual test plan. |
+| [09-implementation-plan.md](./09-implementation-plan.md) | Ordered steps with checkpoints. |
+
+Where a phase doc and `00-decisions.md` disagree, the decision log wins.
+
+**Before any doc here is closed**, it must pass [docs/ACCEPTANCE_CHECKLIST.md](../../ACCEPTANCE_CHECKLIST.md),
+including its closing record. Phase 1 is **Done**. Phase 2 is **Done**. Open items are listed in its closing record.
 
 ## Cross-cutting open questions
 

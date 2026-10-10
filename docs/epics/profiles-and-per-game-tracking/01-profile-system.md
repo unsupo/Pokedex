@@ -52,6 +52,10 @@ class UserData {
 }
 ```
 
+Phase 1 also adds `late String scopeKey;` set to `"national"` for every row. This is the field
+that Phase 2 uses for per-game scopes. See [D2](./00-decisions.md#d2--caught-state-is-scoped-by-a-scopekey-string-not-a-nullable-versionid).
+The composite index becomes `(profileId, scopeKey, pokemonId)`.
+
 ### Changed: `CaughtTcgCard` — same treatment
 
 Add `late int profileId;` and widen the existing unique index from `cardId` alone to
@@ -112,3 +116,40 @@ migration, assert nothing is lost and it's attributed to the new default profile
   screen without requiring an app restart.
 - CSV export produces only the active profile's caught set; CSV import only affects the active
   profile.
+
+## Traceability (acceptance → tests)
+
+| Acceptance criterion | Test(s) |
+|---|---|
+| Fresh install has one profile and behaves as before | `profile_isolation_test` "a fresh install creates one default profile"; `profile_migration_test` "a fresh database gets exactly one default profile"; E2E first step (`integration_test/profiles_e2e_test.dart`) |
+| Upgrade keeps all existing caught state on one default profile | `legacy_upgrade_test` (real pre-profile database fixture); `profile_migration_test` "legacy caught Pokemon" and "legacy caught TCG cards" groups |
+| Two profiles do not affect each other, for Pokemon and cards | `profile_isolation_test` (both groups); `pokemon_api_provider_profile_test` "caught state follows the active profile"; `tcg_caught_status_persistence_test` "TcgApiProvider per profile" |
+| Switching profile updates indicators without a restart | `pokemon_api_provider_profile_test` (switch tests); `tcg_caught_status_persistence_test` "switching profile updates…"; E2E "caught Pokemon belong to the profile…" |
+| CSV export and import only touch the active profile | `pokemon_api_provider_profile_test` "CSV export and import use the active profile"; `caught_pokemon_transfer_service_test` "profile scoping" |
+| Create, rename, reset profile | `profile_provider_test` (create, rename, reset groups); `profile_menu_test` (create, rename, reset, cancel) |
+| Active profile survives a relaunch | `shared_preferences_active_profile_store_test` "survives a new store instance"; E2E relaunch step |
+| Reset does not leave stale indicators (ticket) | `pokemon_api_provider_profile_test` "resetting a profile"; `tcg_caught_status_persistence_test` "resetting the active profile" |
+
+## Deviations from the plan
+
+- **New collection instead of reshaping `UserData`** ([D9](./00-decisions.md#d9--caught-pokemon-live-in-a-new-caughtpokemon-collection)).
+- **`scopeKey` in place from Phase 1** ([D2](./00-decisions.md#d2--caught-state-is-scoped-by-a-scopekey-string-not-a-nullable-versionid)), always `"national"`.
+- **`clearCache()` excludes profiles and caught records** ([D11](./00-decisions.md#d11--clearcache-does-not-clear-profiles-or-caught-records)).
+- **Legacy `id` CSV import** is supported in the codec and transfer service.
+- **Shared Isar test harness and fakes** moved to `test/support/`. The E2E test is in `integration_test/`.
+- **New dev dependencies**: `integration_test`, `path`, `path_provider_platform_interface`.
+
+## Open items
+
+- **Backup prompt before migration:** done. See [migration-backup-prompt.md](../../tickets/migration-backup-prompt.md).
+- **`CaughtTcgCard` `isarId` was made non-final.** Isar must assign it on read, or a later save
+  inserts a duplicate row instead of updating. This is covered by the upgrade and TCG tests.
+
+## Closing record
+
+- Date: 2026-10-06
+- Commit: not yet committed (working tree)
+- Phase 1 open items: none. The backup prompt is complete.
+- Checklist: [docs/ACCEPTANCE_CHECKLIST.md](../../ACCEPTANCE_CHECKLIST.md). Items not met are listed under Open items.
+- Tests: `flutter test` 109 passing, 1 failing (`test/widget_test.dart`, the untouched Flutter counter template, failing before this work). E2E `integration_test/profiles_e2e_test.dart` on macOS: passing. `flutter build apk --debug`: built.
+- analyze: 0 errors. 56 issues, up from 45 at baseline; the increase is experimental-API warnings from Isar's generated code for the new unique indexes.

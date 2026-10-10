@@ -1,10 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:pokedex_app/app_providers.dart';
 import 'package:pokedex_app/services/pokemon_api_provider.dart';
-import 'package:pokedex_app/services/tcg_api_provider.dart';
+import 'package:pokedex_app/services/profile_provider.dart';
+import 'package:pokedex_app/services/profiles/active_profile_store.dart';
+import 'package:pokedex_app/services/profiles/local_service_profile_repository.dart';
+import 'package:pokedex_app/services/profiles/scope_store.dart';
+import 'package:pokedex_app/services/scope_provider.dart';
+import 'package:pokedex_app/services/backup_notice.dart';
 import 'package:pokedex_app/services/pokemon_tcg_api_service.dart';
-import 'package:pokedex_app/services/ui_state_provider.dart';
+import 'package:pokedex_app/widgets/backup_notice.dart';
 import 'package:pokedex_app/widgets/hamburger_menu.dart';
+import 'package:pokedex_app/widgets/profile/profile_menu.dart';
+import 'package:pokedex_app/widgets/scope/scope_selector_bar.dart';
 import 'services/local/isar_local_service.dart';
 import 'services/local/local_service.dart';
 import 'services/poke_api_pokemon_service.dart';
@@ -20,17 +28,23 @@ void main() async {
   // clone still runs (just without a TCG API key, which the API tolerates at
   // a lower rate limit - see PokemonTcgApiService).
   await dotenv.load(fileName: '.env', isOptional: true);
-  final LocalService localService = await IsarService.create();
+  final LocalService localService = await IsarService.create(
+      onLegacyCaughtData: BackupNotice.markPending);
+  final profiles = ProfileProvider(
+    LocalServiceProfileRepository(localService),
+    SharedPreferencesActiveProfileStore(),
+  );
+  await profiles.load();
+  final scopes = ScopeProvider(profiles, SharedPreferencesScopeStore());
+  await scopes.load();
   runApp(MultiProvider(
-    providers: [
-      ChangeNotifierProvider(
-          create: (_) => TcgApiProvider(
-              PokemonTcgApiService(localService), localService)),
-      ChangeNotifierProvider(
-          create: (_) => PokemonApiProvider(
-              PokeApiPokemonService(localService), localService)),
-      ChangeNotifierProvider(create: (_) => UiStateProvider(localService))
-    ],
+    providers: buildAppProviders(
+      localService: localService,
+      pokemonService: PokeApiPokemonService(localService),
+      tcgService: PokemonTcgApiService(localService),
+      profiles: profiles,
+      scopes: scopes,
+    ),
     child: MyApp(saveService: localService),
   ));
   // runApp(MyApp(saveService: await IsarService.create())); // Pass save service to MyApp
@@ -61,6 +75,7 @@ class PokedexScreen extends StatefulWidget {
 
 class _PokedexScreenState extends State<PokedexScreen> {
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   PokemonApiProvider? _pokemonApiProvider;
   String? _lastShownError;
 
@@ -72,6 +87,8 @@ class _PokedexScreenState extends State<PokedexScreen> {
       _pokemonApiProvider = Provider.of<PokemonApiProvider>(context, listen: false)
         ..addListener(_showErrorIfAny);
       _pokemonApiProvider!.fetchData();
+      showBackupNoticeIfPending(context,
+          onOpenMenu: () => _scaffoldKey.currentState?.openDrawer());
     });
   }
 
@@ -95,13 +112,16 @@ class _PokedexScreenState extends State<PokedexScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       appBar: AppBar(
         title: Text('Pokedex'),
+        actions: const [ProfileButton()],
       ),
       drawer: const HamburgerMenu(), // Add the hamburger menu here
       body: Column(
         children: [
           PokemonSearchBar(scrollController: _scrollController,),
+          const ScopeSelectorBar(),
           Expanded(
             child: context.watch<PokemonApiProvider>().isLoadingPokemon &&
                     context.watch<PokemonApiProvider>().filteredPokemon.isEmpty

@@ -2,7 +2,6 @@ import 'dart:core';
 
 import 'package:isar_community/isar.dart';
 import 'package:json_annotation/json_annotation.dart';
-import 'package:pokedex_app/models/user_data.dart';
 
 part 'tcg_card.g.dart';
 
@@ -15,14 +14,16 @@ class TcgCard {
   final String? supertype;
   final List<String>? subtypes;
 
+  /// Transient: this profile's caught status, filled in by TcgApiProvider.
   @ignore
-  UserData? userData;
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  bool isCaught = false;
   // final String? level; // Changed to int
   // final String? hp; // Changed to int
   final List<String>? types;
   final List<String>? evolvesTo;
   // final List<String>? evolvesFrom;
-  final List<String>? abilities; // Consider making a dedicated Ability class
+  final List<CardAbility>? abilities; // Consider making a dedicated Ability class
   final List<String>? rules; // Consider making a dedicated Rule class
   final List<Attack>? attacks;
   final List<WeaknessResistance>? weaknesses;
@@ -75,24 +76,51 @@ class TcgCard {
   Map<String, dynamic> toJson() => _$TcgCardToJson(this);
 }
 
-// Persisted caught-status for a TCG card, keyed by the TCG API's own
-// (globally unique, stable) string card id — e.g. "swsh1-1". This is
-// intentionally a separate Isar collection from UserData, which is keyed by
-// PokeAPI national dex ids (small ints). Reusing UserData/its id-space for
-// TCG cards would collide with and corrupt caught-Pokemon state.
+// Persisted caught-status for a TCG card, per profile. Keyed by the profile
+// plus the TCG API's own (globally unique, stable) string card id, e.g.
+// "swsh1-1". Kept separate from CaughtPokemon, which is keyed by PokeAPI
+// national dex ids (small ints), so card ids cannot collide with Pokemon data.
 @collection
 class CaughtTcgCard {
-  final Id isarId = Isar.autoIncrement;
+  // Not final: Isar must be able to assign the stored id when it reads a row
+  // back, or a later put would insert a duplicate instead of updating.
+  Id isarId = Isar.autoIncrement;
 
-  @Index(unique: true, replace: true)
+  @Index(
+    composite: [CompositeIndex('cardId')],
+    unique: true,
+    replace: true,
+  )
+  late int profileId;
+
   late String cardId;
 
   late bool isCaught;
 
   CaughtTcgCard({
+    required this.profileId,
     required this.cardId,
     required this.isCaught,
   });
+}
+
+@embedded
+@JsonSerializable()
+class CardAbility {
+  final String? name;
+  final String? text;
+  final String? type;
+
+  CardAbility({
+    this.name,
+    this.text,
+    this.type,
+  });
+
+  factory CardAbility.fromJson(Map<String, dynamic> json) =>
+      _$CardAbilityFromJson(json);
+
+  Map<String, dynamic> toJson() => _$CardAbilityToJson(this);
 }
 
 @embedded

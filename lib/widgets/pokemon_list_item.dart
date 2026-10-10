@@ -6,6 +6,7 @@ import '../models/pokeapi/pokemon.dart';
 import '../services/pokemon_api_provider.dart';
 import 'type_pill.dart';
 import '../screens/pokemon_details_screen.dart';
+import 'scope/caught_toggle.dart';
 
 class PokemonListItem extends StatefulWidget {
   final int pokemonId;
@@ -81,6 +82,13 @@ class _PokemonListItemState extends State<PokemonListItem> {
                             color: Colors.grey),
                         width: 50,
                         height: 50,
+                        // Official artwork sprites are ~475-600px; without
+                        // this, every one gets decoded at full resolution
+                        // and cached in memory even though the list only
+                        // ever shows them at 50x50 - a real cost across
+                        // ~1000 scrolling rows. 100 accounts for ~2x DPI.
+                        memCacheWidth: 100,
+                        memCacheHeight: 100,
                       ),
                     ),
                     SizedBox(width: 16),
@@ -113,10 +121,8 @@ class _PokemonListItemState extends State<PokemonListItem> {
           ),
           // Right half (Pokeball toggle)
           GestureDetector(
-            onTap: () {
-              Provider.of<PokemonApiProvider>(context, listen: false)
-                  .isCaught(widget.pokemonId, !isCaught);
-            },
+            key: Key('caught-toggle-${widget.pokemonId}'),
+            onTap: () => toggleCaught(context, widget.pokemonId, !isCaught),
             behavior: HitTestBehavior.opaque,
             child: Padding(
               padding: const EdgeInsets.all(16.0),

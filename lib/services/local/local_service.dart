@@ -20,8 +20,9 @@ import '../../models/pokeapi/pokemon_details.dart';
 import '../../models/pokeapi/pokemon_species.dart';
 import '../../models/pokeapi/stat.dart';
 import '../../models/pokeapi/utility.dart';
+import '../../models/caught_pokemon.dart';
+import '../../models/profile.dart';
 import '../../models/tcg_card.dart';
-import '../../models/user_data.dart';
 
 abstract class LocalService {
   Future<void> init(); // Initialize the database
@@ -37,11 +38,20 @@ abstract class LocalService {
 
   Future<void> clearCache();
 
-  Future<List<UserData>> getAllUserData();
+  // region Profiles
+  Future<List<Profile>> getAllProfiles();
+  /// Inserts or renames a profile. Returns its id.
+  Future<int> saveProfile(Profile profile);
+  /// Deletes this profile's caught Pokemon and caught TCG cards. Leaves the
+  /// profile itself and every other profile untouched.
+  Future<void> resetCaughtDataForProfile(int profileId);
+  //endregion
 
-  Future<void> saveUserData(UserData? userData);
-
-  Future<void> saveAllUserData(List<UserData> allUserData);
+  // region Caught Pokemon
+  Future<List<CaughtPokemon>> getCaughtPokemonForProfile(int profileId);
+  /// Upserts by (profileId, scopeKey, pokemonId).
+  Future<void> saveAllCaughtPokemon(List<CaughtPokemon> caughtPokemon);
+  //endregion
   Future<void> savePokemonSpecies(PokemonSpecies pokemonSpecies);
   Future<void> saveAllPokemonSpecies(List<PokemonSpecies?> allPokemonSpecies);
   Future<PokemonSpecies?> getPokemonSpecies(int id);
@@ -194,8 +204,10 @@ abstract class LocalService {
   //endregion
 
   // region TCG Cards
-  Future<CaughtTcgCard?> getCaughtTcgCard(String cardId);
+  Future<CaughtTcgCard?> getCaughtTcgCard(int profileId, String cardId);
   Future<void> saveCaughtTcgCard(CaughtTcgCard caughtTcgCard);
-  Future<List<CaughtTcgCard>> getAllCaughtTcgCards();
+  /// Upserts by (profileId, cardId), for a batched import.
+  Future<void> saveAllCaughtTcgCards(List<CaughtTcgCard> caughtTcgCards);
+  Future<List<CaughtTcgCard>> getCaughtTcgCardsForProfile(int profileId);
   //endregion
 }

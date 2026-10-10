@@ -21,8 +21,11 @@ import 'package:pokedex_app/models/pokeapi/pokemon.dart';
 import 'package:pokedex_app/models/pokeapi/pokemon_species.dart';
 import 'package:pokedex_app/models/pokeapi/stat.dart';
 import 'package:pokedex_app/models/pokeapi/utility.dart';
+import 'package:pokedex_app/models/caught_pokemon.dart';
+import 'package:pokedex_app/models/profile.dart';
 import 'package:pokedex_app/models/tcg_card.dart';
 import 'package:pokedex_app/models/user_data.dart';
+import 'profile_migration.dart';
 import '../../models/pokeapi/pokemon_details.dart';
 import 'local_service.dart';
 import 'package:path_provider/path_provider.dart';
@@ -30,11 +33,19 @@ import 'package:flutter/foundation.dart';
 
 class IsarService implements LocalService {
   late Isar _isar;
+  Future<void> Function()? _onLegacyCaughtData;
 
   IsarService._(); // Private constructor
 
-  static Future<IsarService> create() async {
+  /// [onLegacyCaughtData] runs when the database still holds pre-profile
+  /// caught Pokemon, before the migration clears them. Use it to mark a
+  /// one-time notice: if the app dies after the migration, the notice must
+  /// still be there on the next launch.
+  static Future<IsarService> create({
+    Future<void> Function()? onLegacyCaughtData,
+  }) async {
     final service = IsarService._();
+    service._onLegacyCaughtData = onLegacyCaughtData;
     await service.init();
     return service;
   }
@@ -53,6 +64,8 @@ class IsarService implements LocalService {
         EvolutionChainSchema,
         EvolutionChainUrlSchema,
         UserDataSchema,
+        ProfileSchema,
+        CaughtPokemonSchema,
         BerrySchema,
         BerryFlavorSchema,
         ContestTypeSchema,
@@ -94,6 +107,10 @@ class IsarService implements LocalService {
       ],
       directory: dir.path,
     );
+    if (_onLegacyCaughtData != null && await _isar.userDatas.count() > 0) {
+      await _onLegacyCaughtData!();
+    }
+    await migrateCaughtDataToProfiles(_isar);
   }
 
   // Helper function to execute Isar transactions
@@ -1029,39 +1046,50 @@ class IsarService implements LocalService {
     });
   }
 
+  // region Profiles
   @override
-  Future<List<UserData>> getAllUserData() async {
-    return await _isarTransaction<List<UserData>>((isar) async {
-      if (kDebugMode) {
-        print('Fetching user data from Isar');
-      }
-      return await isar.userDatas.where().findAll();
+  Future<List<Profile>> getAllProfiles() async {
+    return await _isarTransaction<List<Profile>>((isar) async {
+      return await isar.profiles.where(sort: Sort.asc).findAll();
     });
   }
 
   @override
-  Future<void> saveUserData(UserData? userData) async {
-    await _isarTransaction<void>((isar) async {
-      if (kDebugMode) {
-        print('Saving user data for Pokemon ${userData?.id} to Isar');
-      }
-      await isar.writeTxn(() async {
-        await isar.userDatas.put(userData!);
-      });
+  Future<int> saveProfile(Profile profile) async {
+    return await _isarTransaction<int>((isar) async {
+      return await isar.writeTxn(() => isar.profiles.put(profile));
     });
   }
 
   @override
-  Future<void> saveAllUserData(List<UserData> allUserData) async {
+  Future<void> resetCaughtDataForProfile(int profileId) async {
     await _isarTransaction<void>((isar) async {
-      if (kDebugMode) {
-        print('Saving all user data to Isar');
-      }
       await isar.writeTxn(() async {
-        await isar.userDatas.putAll(allUserData);
+        await isar.caughtPokemons.filter().profileIdEqualTo(profileId).deleteAll();
+        await isar.caughtTcgCards.filter().profileIdEqualTo(profileId).deleteAll();
       });
     });
   }
+  //endregion
+
+  // region Caught Pokemon
+  @override
+  Future<List<CaughtPokemon>> getCaughtPokemonForProfile(int profileId) async {
+    return await _isarTransaction<List<CaughtPokemon>>((isar) async {
+      return await isar.caughtPokemons.filter().profileIdEqualTo(profileId).findAll();
+    });
+  }
+
+  @override
+  Future<void> saveAllCaughtPokemon(List<CaughtPokemon> caughtPokemon) async {
+    await _isarTransaction<void>((isar) async {
+      await isar.writeTxn(() async {
+        await isar.caughtPokemons.putAll(caughtPokemon);
+      });
+    });
+  }
+  //endregion
+
   @override
   Future<void> saveAllPokemonSpecies(List<PokemonSpecies?> allPokemonSpecies) async {
     await _isarTransaction<void>((isar) async {
@@ -1236,12 +1264,16 @@ class IsarService implements LocalService {
 
   // region TCG Cards
   @override
-  Future<CaughtTcgCard?> getCaughtTcgCard(String cardId) async {
+  Future<CaughtTcgCard?> getCaughtTcgCard(int profileId, String cardId) async {
     return await _isarTransaction<CaughtTcgCard?>((isar) async {
       if (kDebugMode) {
-        print('Fetching CaughtTcgCard $cardId from Isar');
+        print('Fetching CaughtTcgCard $cardId for profile $profileId from Isar');
       }
-      return await isar.caughtTcgCards.filter().cardIdEqualTo(cardId).findFirst();
+      return await isar.caughtTcgCards
+          .filter()
+          .profileIdEqualTo(profileId)
+          .cardIdEqualTo(cardId)
+          .findFirst();
     });
   }
 
@@ -1258,12 +1290,18 @@ class IsarService implements LocalService {
   }
 
   @override
-  Future<List<CaughtTcgCard>> getAllCaughtTcgCards() async {
+  Future<void> saveAllCaughtTcgCards(List<CaughtTcgCard> caughtTcgCards) async {
+    await _isarTransaction<void>((isar) async {
+      await isar.writeTxn(() async {
+        await isar.caughtTcgCards.putAll(caughtTcgCards);
+      });
+    });
+  }
+
+  @override
+  Future<List<CaughtTcgCard>> getCaughtTcgCardsForProfile(int profileId) async {
     return await _isarTransaction<List<CaughtTcgCard>>((isar) async {
-      if (kDebugMode) {
-        print('Fetching all CaughtTcgCards from Isar');
-      }
-      return await isar.caughtTcgCards.where().findAll();
+      return await isar.caughtTcgCards.filter().profileIdEqualTo(profileId).findAll();
     });
   }
   //endregion

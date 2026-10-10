@@ -12,6 +12,7 @@ import '../models/pokeapi/pokemon_details.dart';
 import '../models/pokeapi/pokemon_species.dart';
 import '../models/caught_pokemon.dart';
 import '../models/scope.dart';
+import '../utils/evolution_stage.dart';
 import '../widgets/filter_modal.dart';
 import 'game_catalog.dart';
 import 'io/caught_pokemon_repository.dart';
@@ -47,6 +48,7 @@ class PokemonApiProvider with ChangeNotifier {
   List<Game> _games = [];
   bool _gamesLoaded = false;
   String _lastSearchQuery = '';
+  List<int> _lastStages = const [];
   bool _filterApplied = false;
 
   List<Game> get games => _games;
@@ -240,7 +242,7 @@ class PokemonApiProvider with ChangeNotifier {
 
   void _refreshVisibleList() {
     if (_filterApplied) {
-      filterPokemon(_lastSearchQuery, _currentFilters);
+      filterPokemon(_lastSearchQuery, _currentFilters, stages: _lastStages);
       return;
     }
     _filteredPokemon
@@ -634,11 +636,19 @@ class PokemonApiProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Filters the visible Pokemon list by [searchQuery] (a fuzzy, case-
+  /// insensitive substring matched against name/id/type/move/ability - see
+  /// [_matchesFuzzyTerm]) and [filters] (the filter-modal selections),
+  /// further narrowed by [stages] (from `stage:` search tokens, ORed
+  /// together; empty matches every stage). See
+  /// docs/features/search-fuzzy-and-stage.md.
   void filterPokemon(
     String? searchQuery,
-    Map<Filters, dynamic> filters,
-  ) {
+    Map<Filters, dynamic> filters, {
+    List<int> stages = const [],
+  }) {
     _lastSearchQuery = searchQuery ?? '';
+    _lastStages = stages;
     _filterApplied = true;
     updateFilters(filters);
     // Extract the values from the map
@@ -659,9 +669,10 @@ class PokemonApiProvider with ChangeNotifier {
       if (!isVisibleInScope(pokemon.id)) {
         return false;
       }
-      final matchesName =
-          pokemon.toString().contains(searchQuery?.toLowerCase() ?? '');
-      final matchesId = pokemon.id.toString() == searchQuery;
+      // Filter by the search bar's fuzzy term: matches if it's a substring
+      // of name/id, a type, a move, or an ability (see search-fuzzy-and-stage.md).
+      final bool matchesSearch =
+          _matchesFuzzyTerm(pokemon, searchQuery?.toLowerCase() ?? '');
 
       // Filter by Types (considering empty selectedTypes)
       try {
@@ -690,12 +701,16 @@ class PokemonApiProvider with ChangeNotifier {
         final bool matchesGeneration = (selectedGeneration ?? []).isEmpty ||
             selectedGeneration!.contains(pokemon.generation);
 
-        return (matchesName || matchesId) &&
+        // Filter by evolution stage (from `stage:` search tokens).
+        final bool matchesStage = _matchesStage(pokemon, stages);
+
+        return matchesSearch &&
             matchesType &&
             matchesAbility &&
             matchesMove &&
             matchesCaughtStatus &&
             matchesGeneration &&
+            matchesStage &&
             pokemon.isDefault;
       } catch (e) {
         debugPrint(e.toString());
@@ -819,4 +834,55 @@ class PokemonApiProvider with ChangeNotifier {
       notifyListeners();
     }).catchError((_) {})));
   }
+}
+
+/// Whether [pokemon] matches every space-separated word of [fuzzyTerm]
+/// (already lowercased), each checked against name/id, types, move names,
+/// and ability names (any one field matching is enough for that word - see
+/// [_matchesFuzzyWord]). An empty term matches everything. This replaces the
+/// old name/id-only `matchesName`/`matchesId` pair - see
+/// docs/features/search-fuzzy-and-stage.md.
+bool _matchesFuzzyTerm(Pokemon pokemon, String fuzzyTerm) {
+  if (fuzzyTerm.isEmpty) return true;
+  return fuzzyTerm
+      .split(RegExp(r'\s+'))
+      .where((word) => word.isNotEmpty)
+      .every((word) => _matchesFuzzyWord(pokemon, word));
+}
+
+bool _matchesFuzzyWord(Pokemon pokemon, String word) {
+  if (pokemon.toString().toLowerCase().contains(word)) return true;
+
+  final types = pokemon.types;
+  if (types != null &&
+      types.any((type) => type != null && type.toLowerCase().contains(word))) {
+    return true;
+  }
+
+  final abilities = pokemon.details?.abilities;
+  if (abilities != null &&
+      abilities.any(
+          (ability) => (ability.ability?.name ?? '').toLowerCase().contains(word))) {
+    return true;
+  }
+
+  final moves = pokemon.details?.moves;
+  if (moves != null &&
+      moves.any((move) => (move.move?.name ?? '').toLowerCase().contains(word))) {
+    return true;
+  }
+
+  return false;
+}
+
+/// Whether [pokemon] is at one of [stages] (1-based evolution-chain depth,
+/// from `stage:` search tokens, ORed together). Empty matches every stage.
+/// Degrades to "doesn't match" - rather than throwing - while the evolution
+/// chain is still loading or the Pokemon's id can't be found in it.
+bool _matchesStage(Pokemon pokemon, List<int> stages) {
+  if (stages.isEmpty) return true;
+  final chain = pokemon.evolutionChain;
+  if (chain == null) return false;
+  final stage = stageOfPokemonInChain(chain, pokemon.id);
+  return stage != null && stages.contains(stage);
 }

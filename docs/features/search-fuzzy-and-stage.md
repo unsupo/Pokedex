@@ -1,6 +1,6 @@
 # Fuzzy multi-field search + evolution stage
 
-Status: **Draft** (2026-10-10). Design only - no code yet.
+Status: **Done** (2026-10-10). Implemented per the design below; see Closing record.
 
 ## Problem
 
@@ -175,21 +175,33 @@ icon/popover needed for one modifier.
 10. An unrecognized `key:value`-shaped token (anything but `stage:`) is
     treated as ordinary plain text, not dropped and not an error.
 
-## Traceability (filled in once accepted and tests exist)
+## Traceability
 
 | AC | Test |
 |---|---|
-| 1 | TBD |
-| 2 | TBD |
-| 3 | TBD |
-| 4 | TBD |
-| 5 | TBD |
-| 6 | TBD |
-| 7 | TBD |
-| 8 | TBD |
-| 9 | TBD |
-| 10 | TBD |
+| 1 | `test/services/pokemon_api_provider_search_test.dart` - "a move name with no prefix finds every Pokemon that knows it (AC1)" |
+| 2 | `test/services/pokemon_api_provider_search_test.dart` - "a type name with no prefix finds every Pokemon of that type (AC2)" |
+| 3 | `test/services/pokemon_api_provider_search_test.dart` - "an ability name with no prefix finds every Pokemon with it (AC3)" |
+| 4 | `test/services/pokemon_api_provider_search_test.dart` - "existing name/id substring search still works unchanged (AC4)" |
+| 5 | `test/services/pokemon_api_provider_search_test.dart` - "two space-separated words both must match, even against different fields on the same Pokemon (AC5)" |
+| 6 | `test/services/pokemon_api_provider_search_test.dart` - "stage:1/2/3 returns ... (AC6)" (3 tests, one per stage, against the fixture's 3-stage chain, 2-stage chain, and non-evolving Pokemon); also unit-level in `test/utils/evolution_stage_test.dart` ("a non-evolving Pokemon is stage 1", "a 2-stage chain: ...", "a 3-stage chain: ...") |
+| 7 | `test/services/pokemon_api_provider_search_test.dart` - "repeated stage key (stage:1 stage:2) matches either stage (AC7)" |
+| 8 | `test/services/pokemon_api_provider_search_test.dart` - "a stage-only query with no plain text still returns results (AC8)"; also `test/widgets/pokemon_search_bar_test.dart` - "typing a stage: query narrows the list to that stage" |
+| 9 | `test/utils/evolution_stage_test.dart` - "returns null, not a crash, for an id not present in the chain" |
+| 10 | `test/utils/search_query_parser_test.dart` - "an unrecognized key:value-shaped token is kept as plain text" |
+
+Additional coverage: `test/utils/search_query_parser_test.dart` (parser edge cases: empty/whitespace-only input, lowercasing, comma-separated stages, case-insensitive `STAGE:`, malformed stage value degrading to plain text), `test/utils/evolution_stage_test.dart` (branching chains, root link with no species), `test/widgets/pokemon_search_bar_test.dart` (hintText discoverability, clearing the field resets a `stage:` filter).
 
 ## Open questions
 
 None blocking.
+
+### Closing record
+- Date: 2026-10-10
+- Commit: (uncommitted - left as working-tree changes for review; see the implementing agent's report)
+- Checklist: docs/ACCEPTANCE_CHECKLIST.md (all applicable items ticked; not reviewed as an actual checkbox pass over every section - this feature only had reason to touch §§1-5 and §10; §§6-9 are no-ops here: no new Isar collection, no new screen/async loading state beyond what already existed, no new network call, no new blocking work)
+- Tests: unit 18 / integration 11 / e2e 0 / widget 3 (all passing: yes - plus the pre-existing, unrelated `test/widget_test.dart` counter-smoke-test failure documented in CLAUDE.md as not exercising this app)
+- analyze: clean (no new issues; the one pre-existing `library_private_types_in_public_api` info on `pokemon_search_bar.dart`'s `createState()` predates this change)
+- TDD evidence: each new pure function (`parseSearchQuery`, `stageOfPokemonInChain`) and the provider's extended predicates were driven by a test written and seen failing (red) before the implementation (green) - see the implementing agent's report for the red-run transcripts
+- Traceability: table above
+- N/A items and why: §6 (data safety / migrations) - no schema or Isar collection change; §7's loading/empty/error states and §8/§9 - no new screen, network call, or blocking work introduced by this feature

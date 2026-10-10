@@ -1,5 +1,6 @@
 import '../../models/caught_pokemon.dart';
 import '../../models/tcg_card.dart';
+import '../profiles/profile_repository.dart';
 import 'caught_pokemon_repository.dart';
 import 'caught_tcg_card_repository.dart';
 import 'combined_caught_csv_codec.dart';
@@ -34,50 +35,57 @@ class CombinedImportResult {
 }
 
 /// One export, one import, covering both caught Pokemon and caught TCG
-/// cards for a profile, in a single file. Orchestrates
+/// cards for **every** profile, in a single file - a full local backup, not
+/// a per-profile one (see decision: a profile-scoped export only ever
+/// backs up part of the data, which is the bug this shape fixes). Orchestrates
 /// [CombinedCaughtCsvCodec] the same way [CaughtPokemonTransferService] and
 /// [CaughtTcgCardTransferService] each orchestrate their own single-type
 /// codec - import is a merge for both sides, never a replace.
 class CombinedCaughtTransferService {
   final CaughtPokemonRepository _pokemonRepository;
   final CaughtTcgCardRepository _cardRepository;
+  final ProfileRepository _profileRepository;
 
-  CombinedCaughtTransferService(this._pokemonRepository, this._cardRepository);
+  CombinedCaughtTransferService(
+      this._pokemonRepository, this._cardRepository, this._profileRepository);
 
-  /// [pokemonScopeKey] limits the Pokemon side to one scope; null exports
-  /// every scope. Cards have no scope dimension, so they are never filtered.
+  /// Every profile's caught Pokemon (every scope - a backup has no reason to
+  /// leave part of a profile out) and caught cards, tagged by profile name so
+  /// [importCaught] can route each row back to the right profile.
   ///
   /// [pokemonNames] is an id-to-name lookup (e.g. from the already-loaded
   /// Pokedex) used only to make the exported file readable by a human; it
   /// plays no part in what gets imported back.
   Future<CombinedExportResult> exportCaught(
     CsvTransport transport, {
-    required int profileId,
-    String? pokemonScopeKey,
     Map<int, String> pokemonNames = const {},
     String fileName = 'caught_pokedex_data.csv',
   }) async {
-    final pokemonRows = (await _pokemonRepository.loadAll(profileId))
-        .where((row) =>
-            row.isCaught && (pokemonScopeKey == null || row.scopeKey == pokemonScopeKey))
-        .map((row) => (
-              kind: 'pokemon',
-              scopeKey: row.scopeKey,
-              pokemonId: row.pokemonId,
-              cardId: null,
-              isCaught: true,
-            ))
-        .toList();
-    final cardRows = (await _cardRepository.loadAll(profileId))
-        .where((row) => row.isCaught)
-        .map((row) => (
-              kind: 'card',
-              scopeKey: null,
-              pokemonId: null,
-              cardId: row.cardId,
-              isCaught: true,
-            ))
-        .toList();
+    final profiles = await _profileRepository.loadProfiles();
+    final pokemonRows = <CombinedCaughtRow>[];
+    final cardRows = <CombinedCaughtRow>[];
+    for (final profile in profiles) {
+      pokemonRows.addAll((await _pokemonRepository.loadAll(profile.id))
+          .where((row) => row.isCaught)
+          .map((row) => (
+                kind: 'pokemon',
+                scopeKey: row.scopeKey,
+                pokemonId: row.pokemonId,
+                cardId: null,
+                isCaught: true,
+                profileName: profile.name,
+              )));
+      cardRows.addAll((await _cardRepository.loadAll(profile.id))
+          .where((row) => row.isCaught)
+          .map((row) => (
+                kind: 'card',
+                scopeKey: null,
+                pokemonId: null,
+                cardId: row.cardId,
+                isCaught: true,
+                profileName: profile.name,
+              )));
+    }
 
     final saved = await transport.save(
         fileName,
@@ -90,29 +98,49 @@ class CombinedCaughtTransferService {
     );
   }
 
+  /// Routes each row to the profile named in [CombinedCaughtRow.profileName],
+  /// creating that profile (via [ProfileRepository.addProfile], which does
+  /// not switch the active profile - unlike [ProfileProvider.createProfile])
+  /// if no profile with that name exists yet. A row with no profile name (a
+  /// file written before per-row profile info existed) goes to
+  /// [fallbackProfileId] instead - the same, single-profile behavior this
+  /// method had before all-profiles export existed.
   Future<CombinedImportResult> importCaught(
     CsvTransport transport, {
-    required int profileId,
+    required int fallbackProfileId,
   }) async {
     final csv = await transport.load();
     if (csv == null) return const CombinedImportResult.cancelled();
 
     final rows = CombinedCaughtCsvCodec.decode(csv).where((row) => row.isCaught);
-    final pokemonRows = [
-      for (final row in rows)
-        if (row.kind == 'pokemon')
-          CaughtPokemon(
-            profileId: profileId,
-            scopeKey: row.scopeKey!,
-            pokemonId: row.pokemonId!,
-            isCaught: true,
-          ),
-    ];
-    final cardRows = [
-      for (final row in rows)
-        if (row.kind == 'card')
-          CaughtTcgCard(profileId: profileId, cardId: row.cardId!, isCaught: true),
-    ];
+
+    final profileIdByName = {
+      for (final profile in await _profileRepository.loadProfiles()) profile.name: profile.id,
+    };
+    Future<int> resolveProfileId(String? name) async {
+      if (name == null) return fallbackProfileId;
+      final existing = profileIdByName[name];
+      if (existing != null) return existing;
+      final created = await _profileRepository.addProfile(name);
+      profileIdByName[name] = created.id; // repeated rows for a new profile create it once
+      return created.id;
+    }
+
+    final pokemonRows = <CaughtPokemon>[];
+    final cardRows = <CaughtTcgCard>[];
+    for (final row in rows) {
+      final profileId = await resolveProfileId(row.profileName);
+      if (row.kind == 'pokemon') {
+        pokemonRows.add(CaughtPokemon(
+          profileId: profileId,
+          scopeKey: row.scopeKey!,
+          pokemonId: row.pokemonId!,
+          isCaught: true,
+        ));
+      } else if (row.kind == 'card') {
+        cardRows.add(CaughtTcgCard(profileId: profileId, cardId: row.cardId!, isCaught: true));
+      }
+    }
 
     if (pokemonRows.isNotEmpty) await _pokemonRepository.saveAll(pokemonRows);
     if (cardRows.isNotEmpty) await _cardRepository.saveAll(cardRows);

@@ -6,12 +6,21 @@ import 'caught_tcg_card_csv_codec.dart';
 /// One CSV line, tagged by [kind] so one file can hold both caught Pokemon
 /// and caught TCG cards. Exactly one of (`scopeKey`+`pokemonId`) or
 /// `cardId` is set, matching [kind].
+///
+/// [profileName] is which profile this row belongs to, by name (not id -
+/// ids are a local autoincrement and don't survive a reinstall or a new
+/// device, unlike a name). Null means "no profile info" - every format this
+/// codec reads from before profile-wide export existed (and a single-profile
+/// combined export from before this field existed) has no such column, and
+/// those rows are routed to a caller-supplied fallback profile on import
+/// (see [CombinedCaughtTransferService]).
 typedef CombinedCaughtRow = ({
   String kind, // 'pokemon' or 'card'
   String? scopeKey,
   int? pokemonId,
   String? cardId,
   bool isCaught,
+  String? profileName,
 });
 
 const _pokemonKind = 'pokemon';
@@ -32,14 +41,17 @@ class CombinedCaughtCsvCodec {
   static const _pokemonIdColumn = 'pokemonid';
   static const _cardIdColumn = 'cardid';
   static const _isCaughtColumn = 'iscaught';
+  static const _profileNameColumn = 'profilename';
 
   /// [pokemonNames] is purely cosmetic: it makes an exported file readable
   /// outside the app (e.g. opened in a spreadsheet) without needing a
   /// Pokedex lookup. It is never read back by [decode] - pokemonId remains
-  /// the only identity the import path trusts.
+  /// the only identity the import path trusts. [CombinedCaughtRow.profileName]
+  /// is the opposite - genuinely read back by [decode], since it's what lets
+  /// an all-profiles export route each row to the right profile on import.
   static String encode(List<CombinedCaughtRow> rows, {Map<int, String> pokemonNames = const {}}) {
     final table = <List<Object>>[
-      ['kind', 'scopeKey', 'pokemonId', 'cardId', 'isCaught', 'pokemonName'],
+      ['kind', 'scopeKey', 'pokemonId', 'cardId', 'isCaught', 'pokemonName', 'profileName'],
       for (final row in rows)
         [
           row.kind,
@@ -48,6 +60,7 @@ class CombinedCaughtCsvCodec {
           row.cardId ?? '',
           row.isCaught,
           row.pokemonId == null ? '' : (pokemonNames[row.pokemonId] ?? ''),
+          row.profileName ?? '',
         ],
     ];
     return const ListToCsvConverter().convert(table, eol: '\n');
@@ -81,6 +94,7 @@ class CombinedCaughtCsvCodec {
             pokemonId: row.pokemonId,
             cardId: null,
             isCaught: row.isCaught,
+            profileName: null, // this format predates per-row profile info
           ),
       ];
     }
@@ -93,6 +107,7 @@ class CombinedCaughtCsvCodec {
             pokemonId: null,
             cardId: row.cardId,
             isCaught: row.isCaught,
+            profileName: null, // this format predates per-row profile info
           ),
       ];
     }
@@ -109,6 +124,9 @@ class CombinedCaughtCsvCodec {
     final pokemonIndex = header.indexOf(_pokemonIdColumn);
     final cardIndex = header.indexOf(_cardIdColumn);
     final isCaughtIndex = header.indexOf(_isCaughtColumn);
+    // -1 (absent) is fine here, unlike the other columns: a combined export
+    // made before profileName existed just has no profile info to decode.
+    final profileNameIndex = header.indexOf(_profileNameColumn);
 
     if (scopeIndex == -1 || pokemonIndex == -1 || cardIndex == -1 || isCaughtIndex == -1) {
       throw FormatException(
@@ -122,18 +140,28 @@ class CombinedCaughtCsvCodec {
         if (row.length < width)
           throw FormatException(
               'A row has ${row.length} cells but the header has $width: $row'),
-        _combinedRow(row, kindIndex, scopeIndex, pokemonIndex, cardIndex, isCaughtIndex),
+        _combinedRow(
+            row, kindIndex, scopeIndex, pokemonIndex, cardIndex, isCaughtIndex, profileNameIndex),
       ],
     ];
   }
 
-  static CombinedCaughtRow _combinedRow(List<dynamic> row, int kindIndex, int scopeIndex,
-      int pokemonIndex, int cardIndex, int isCaughtIndex) {
+  static CombinedCaughtRow _combinedRow(
+      List<dynamic> row,
+      int kindIndex,
+      int scopeIndex,
+      int pokemonIndex,
+      int cardIndex,
+      int isCaughtIndex,
+      int profileNameIndex) {
     final kind = row[kindIndex].toString().trim().toLowerCase();
     final isCaught = row[isCaughtIndex].toString().trim().toLowerCase() == 'true';
     final scopeText = row[scopeIndex].toString().trim();
     final pokemonText = row[pokemonIndex].toString().trim();
     final cardText = row[cardIndex].toString().trim();
+    final profileNameText =
+        profileNameIndex == -1 ? '' : row[profileNameIndex].toString().trim();
+    final profileName = profileNameText.isEmpty ? null : profileNameText;
 
     if (kind == _pokemonKind) {
       if (scopeText.isEmpty || pokemonText.isEmpty) {
@@ -145,13 +173,21 @@ class CombinedCaughtCsvCodec {
         pokemonId: int.parse(pokemonText),
         cardId: null,
         isCaught: isCaught,
+        profileName: profileName,
       );
     }
     if (kind == _cardKind) {
       if (cardText.isEmpty) {
         throw FormatException('A card row is missing cardId: $row');
       }
-      return (kind: _cardKind, scopeKey: null, pokemonId: null, cardId: cardText, isCaught: isCaught);
+      return (
+        kind: _cardKind,
+        scopeKey: null,
+        pokemonId: null,
+        cardId: cardText,
+        isCaught: isCaught,
+        profileName: profileName,
+      );
     }
     throw FormatException('Unknown kind "$kind" in row: $row');
   }

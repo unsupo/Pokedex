@@ -20,6 +20,7 @@ import 'io/csv_transport.dart';
 import 'pokemon_service.dart';
 import 'profile_provider.dart';
 import 'scope_provider.dart';
+import '../utils/pokemon_sort.dart';
 
 class PokemonApiProvider with ChangeNotifier {
   final PokemonService _pokemonService;
@@ -634,6 +635,22 @@ class PokemonApiProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  // The list's current sort order (see docs/features/list-sorting.md).
+  // Remembered here -- not just read off UiStateProvider -- so that
+  // filterPokemon() keeps applying it on every later search/filter call
+  // without the caller having to pass it each time (see updateSort below).
+  PokemonSort _sort = PokemonSort.dexAscending;
+
+  /// Changes the list's sort order and re-sorts the current result set
+  /// immediately, without re-running search/filtering. The UI's own record
+  /// of the choice (for display) lives on UiStateProvider; callers update
+  /// both together.
+  void updateSort(PokemonSort sort) {
+    _sort = sort;
+    sortPokemonBy(_filteredPokemon, _sort);
+    notifyListeners();
+  }
+
   void filterPokemon(
     String? searchQuery,
     Map<Filters, dynamic> filters,
@@ -702,6 +719,7 @@ class PokemonApiProvider with ChangeNotifier {
         return false;
       }
     }).toList());
+    sortPokemonBy(_filteredPokemon, _sort);
     notifyListeners();
   }
 

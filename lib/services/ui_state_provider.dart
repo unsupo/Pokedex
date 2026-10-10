@@ -22,4 +22,15 @@ class UiStateProvider with ChangeNotifier {
     sort = newSort;
     notifyListeners();
   }
+
+  /// The most recently viewed Pokemon's id, set when its details screen is
+  /// opened. Used to re-center the Pokedex list when returning Home (see
+  /// docs/features/home-recenter.md). Session-only, like [tabIndex] - not
+  /// persisted across an app restart.
+  int? lastViewedPokemonId;
+
+  void setLastViewedPokemonId(int pokemonId) {
+    lastViewedPokemonId = pokemonId;
+    notifyListeners();
+  }
 }

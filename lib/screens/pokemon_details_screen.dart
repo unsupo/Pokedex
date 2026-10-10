@@ -58,6 +58,17 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
     // behind potentially thousands of unrelated pending requests.
     Provider.of<PokemonApiProvider>(context, listen: false)
         .ensurePriorityDataLoaded(widget.pokemonId);
+    // Records this visit so Home can re-center the list on it - see
+    // docs/features/home-recenter.md. Deferred to after this build (like
+    // PokedexScreen's own initState does for its provider calls): calling
+    // notifyListeners() synchronously here, while this screen's own first
+    // build is still in progress, would try to rebuild the ancestor
+    // provider scope mid-build, which the framework forbids.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Provider.of<UiStateProvider>(context, listen: false)
+          .setLastViewedPokemonId(widget.pokemonId);
+    });
   }
 
   void _syncTabIndexListener() {

@@ -7,6 +7,7 @@ import 'package:pokedex_app/services/profiles/active_profile_store.dart';
 import 'package:pokedex_app/services/profiles/local_service_profile_repository.dart';
 import 'package:pokedex_app/services/profiles/scope_store.dart';
 import 'package:pokedex_app/services/scope_provider.dart';
+import 'package:pokedex_app/services/ui_state_provider.dart';
 import 'package:pokedex_app/services/backup_notice.dart';
 import 'package:pokedex_app/services/pokemon_tcg_api_service.dart';
 import 'package:pokedex_app/widgets/backup_notice.dart';
@@ -16,10 +17,19 @@ import 'package:pokedex_app/widgets/scope/scope_selector_bar.dart';
 import 'services/local/isar_local_service.dart';
 import 'services/local/local_service.dart';
 import 'services/poke_api_pokemon_service.dart';
+import 'utils/scroll_center_math.dart';
 import 'widgets/pokemon_list.dart';
 import 'package:provider/provider.dart';
 
 import 'widgets/pokemon_search_bar.dart';
+
+/// Observes route pushes/pops so `_PokedexScreenState` can tell when a route
+/// (the details screen) is popped back to it, whether via the Home
+/// shortcut's `popUntil` or an ordinary back - see
+/// docs/features/home-recenter.md. Registered on
+/// `MaterialApp.navigatorObservers` below.
+final RouteObserver<ModalRoute<void>> pokedexRouteObserver =
+    RouteObserver<ModalRoute<void>>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -59,6 +69,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Pokedex',
+      navigatorObservers: [pokedexRouteObserver],
       home: PokedexScreen(saveService: saveService),
     );
   }
@@ -73,7 +84,7 @@ class PokedexScreen extends StatefulWidget {
   _PokedexScreenState createState() => _PokedexScreenState();
 }
 
-class _PokedexScreenState extends State<PokedexScreen> {
+class _PokedexScreenState extends State<PokedexScreen> with RouteAware {
   final ScrollController _scrollController = ScrollController();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   PokemonApiProvider? _pokemonApiProvider;
@@ -93,10 +104,56 @@ class _PokedexScreenState extends State<PokedexScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != null) {
+      pokedexRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
   void dispose() {
+    pokedexRouteObserver.unsubscribe(this);
     _pokemonApiProvider?.removeListener(_showErrorIfAny);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Fires when a route pushed on top of this one (the details screen, via
+  /// either the Home shortcut's `popUntil` or an ordinary back) is popped
+  /// back to here. Re-centers the list on the Pokemon that was just being
+  /// viewed - see docs/features/home-recenter.md.
+  @override
+  void didPopNext() {
+    _recenterOnLastViewedPokemon();
+  }
+
+  void _recenterOnLastViewedPokemon() {
+    final lastViewedId = Provider.of<UiStateProvider>(context, listen: false)
+        .lastViewedPokemonId;
+    if (lastViewedId == null || !_scrollController.hasClients) return;
+
+    // The row's position in the *current* filtered/search result, not the
+    // raw dex id - if it isn't present at all (e.g. a filter excluded it
+    // while its details screen was open), there's nothing to center on.
+    final filteredPokemon =
+        Provider.of<PokemonApiProvider>(context, listen: false).filteredPokemon;
+    final index = filteredPokemon.indexWhere((p) => p.id == lastViewedId);
+    if (index == -1) return;
+
+    final position = _scrollController.position;
+    final targetOffset = centeredScrollOffset(
+      index: index,
+      itemExtent: PokemonList.itemExtent,
+      viewportHeight: position.viewportDimension,
+      maxScrollExtent: position.maxScrollExtent,
+    );
+    _scrollController.animateTo(
+      targetOffset,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
   }
 
   /// Background fetch failures (a flaky network call for one move/ability/item
@@ -129,6 +186,7 @@ class _PokedexScreenState extends State<PokedexScreen> {
                 : PokemonList(
                     pokemonList:
                         context.watch<PokemonApiProvider>().filteredPokemon,
+                    scrollController: _scrollController,
                   ),
           ),
           if (context.watch<PokemonApiProvider>().isLoadingPokemon &&

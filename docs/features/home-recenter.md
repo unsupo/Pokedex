@@ -1,6 +1,9 @@
 # Home re-centers the Pokedex list
 
-Status: **Draft** (2026-10-10). Design only - no code yet.
+Status: **Implemented** (2026-10-10). Code and tests landed on this
+worktree branch; see Traceability below. `flutter analyze` clean (no new
+issues) and `flutter test` green (the only failure is the pre-existing,
+already-broken `test/widget_test.dart` template, unrelated to this feature).
 
 ## Problem
 
@@ -88,16 +91,21 @@ and the guard around it means the call is silently a no-op. This feature's fix
    all, the list is left where it is rather than crashing or jumping to a
    wrong index.
 
-## Traceability (filled in once accepted and tests exist)
+## Traceability
 
 | AC | Test |
 |---|---|
-| 1 | TBD |
-| 2 | TBD |
-| 3 | TBD |
-| 4 | TBD |
-| 5 | TBD |
-| 6 | TBD |
+| 1 | `test/widgets/pokedex_screen_recenter_test.dart`: "pressing Home after viewing a Pokemon centers the list on it, even when the list was scrolled elsewhere (AC1, AC2)" |
+| 2 | Same test as AC1 (scroll position doesn't already show the Pokemon), plus `test/widgets/pokedex_screen_recenter_test.dart`: "uses the row position in the current search result, not the raw dex id (AC2)" |
+| 3 | `test/widgets/pokedex_screen_recenter_test.dart`: "re-centering does not fight a scroll made after returning (AC3)" |
+| 4 | `test/widgets/pokedex_screen_recenter_test.dart`: "viewing a second Pokemon and returning Home centers on the second, not the first (AC4)" |
+| 5 | `test/widgets/pokedex_screen_recenter_test.dart`: "returning via the system back gesture re-centers just like the Home button (AC5)" |
+| 6 | `test/widgets/pokedex_screen_recenter_test.dart`: "leaves the list where it is when the last-viewed Pokemon is no longer in the filtered result (AC6)" |
+
+Supporting unit/widget tests (the centering math and the dead-wire fix in isolation):
+- `test/utils/scroll_center_math_test.dart` - the `centeredScrollOffset` pure function (centering, start/end/short-list clamping).
+- `test/services/ui_state_provider_test.dart` - `lastViewedPokemonId` default/set/overwrite.
+- `test/widgets/pokemon_list_test.dart` - `PokemonList` actually attaches the passed-in `ScrollController` with a fixed `itemExtent` (the pre-existing dead-wire bug described above).
 
 ## Open questions
 

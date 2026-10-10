@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../services/pokemon_api_provider.dart';
 import '../services/ui_state_provider.dart';
 import '../utils/pokemon_sort.dart';
+import '../utils/search_query_parser.dart';
 import 'filter_modal.dart';
 
 /// Label shown in the sort menu for each [PokemonSort] value, in the fixed
@@ -65,7 +66,8 @@ class _PokemonSearchBarState extends State<PokemonSearchBar> {
 
   void _filterPokemon(Map<Filters, dynamic> filters) {
     final pokemonData = Provider.of<PokemonApiProvider>(context, listen: false);
-    pokemonData.filterPokemon(_searchController.text, filters);
+    final parsed = parseSearchQuery(_searchController.text);
+    pokemonData.filterPokemon(parsed.fuzzyTerm, filters, stages: parsed.stages);
     _resetScrollPosition();
   }
 
@@ -80,6 +82,7 @@ class _PokemonSearchBarState extends State<PokemonSearchBar> {
               controller: _searchController,
               decoration: InputDecoration(
                 labelText: 'Search Pokemon',
+                hintText: 'type, move, ability… or stage:1',
                 suffixIcon: IconButton(
                   icon: const Icon(Icons.clear),
                   onPressed: () {

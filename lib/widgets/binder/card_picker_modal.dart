@@ -115,9 +115,8 @@ class _CycleView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final clampedIndex = ownedCards.isEmpty
-        ? 0
-        : index.clamp(0, ownedCards.length - 1);
+    final clampedIndex =
+        ownedCards.isEmpty ? 0 : index.clamp(0, ownedCards.length - 1);
     final card = ownedCards.isEmpty ? null : ownedCards[clampedIndex];
 
     return Column(
@@ -204,6 +203,22 @@ class _BrowseView extends StatelessWidget {
     required this.onBack,
   });
 
+  // Catching/un-catching itself (including auto-selecting a Pokemon's very
+  // first owned card as its binder display - see card_caught_toggle.dart,
+  // where this is centralized since this screen's browse grid isn't the
+  // only place a card gets caught from) is all handled by
+  // [toggleCardCaught] already.
+  Future<void> _onCardTapped(BuildContext context, TcgCard card) {
+    return toggleCardCaught(
+      context,
+      card,
+      pokemonId,
+      pokemonAlreadyCaught:
+          context.read<PokemonApiProvider>().allPokemon[pokemonId]?.isCaught ??
+              false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -230,8 +245,7 @@ class _BrowseView extends StatelessWidget {
               ? const Center(child: Text('No cards found for this Pokemon'))
               : GridView.builder(
                   padding: const EdgeInsets.all(8),
-                  gridDelegate:
-                      const SliverGridDelegateWithFixedCrossAxisCount(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 3,
                     crossAxisSpacing: 6,
                     mainAxisSpacing: 6,
@@ -242,16 +256,7 @@ class _BrowseView extends StatelessWidget {
                     final card = cards[index];
                     return GestureDetector(
                       key: Key('binder-browse-card-${card.id}'),
-                      onTap: () => toggleCardCaught(
-                        context,
-                        card,
-                        pokemonId,
-                        pokemonAlreadyCaught: context
-                                .read<PokemonApiProvider>()
-                                .allPokemon[pokemonId]
-                                ?.isCaught ??
-                            false,
-                      ),
+                      onTap: () => _onCardTapped(context, card),
                       child: Container(
                         decoration: BoxDecoration(
                           border: Border.all(

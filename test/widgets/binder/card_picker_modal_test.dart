@@ -18,6 +18,7 @@ import 'package:pokedex_app/services/scope_provider.dart';
 import 'package:pokedex_app/services/tcg_api_provider.dart';
 import 'package:pokedex_app/services/tcg_card_repository.dart';
 import 'package:pokedex_app/services/tcg_service.dart';
+import 'package:pokedex_app/utils/binder/binder_pocket.dart';
 import 'package:pokedex_app/widgets/binder/card_picker_modal.dart';
 import 'package:provider/provider.dart';
 
@@ -52,8 +53,8 @@ class _TwoPokemonService implements PokemonService {
   Future<List<int>> getVersionGroupIds() async => [];
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('${invocation.memberName} is offline in this test');
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
+      '${invocation.memberName} is offline in this test');
 }
 
 void main() {
@@ -88,7 +89,8 @@ void main() {
       {required int pokemonId, required bool startInBrowse}) async {
     await tester.pumpWidget(MultiProvider(
       providers: [
-        ChangeNotifierProvider<PokemonApiProvider>.value(value: pokemonProvider),
+        ChangeNotifierProvider<PokemonApiProvider>.value(
+            value: pokemonProvider),
         ChangeNotifierProvider<TcgApiProvider>.value(value: tcgProvider),
         ChangeNotifierProvider<CardBinderProvider>.value(value: binderProvider),
       ],
@@ -132,11 +134,18 @@ void main() {
     await pokemonProvider.fetchData();
 
     final ownedCard = TcgCard(
-        id: 'picker-modal-card-1', name: 'Pikachu V', nationalPokedexNumbers: const [25]);
+        id: 'picker-modal-card-1',
+        name: 'Pikachu V',
+        nationalPokedexNumbers: const [25]);
     final uncaughtCard = TcgCard(
-        id: 'picker-modal-card-2', name: 'Bulbasaur', nationalPokedexNumbers: const [50]);
+        id: 'picker-modal-card-2',
+        name: 'Bulbasaur',
+        nationalPokedexNumbers: const [50]);
     tcgProvider = TcgApiProvider(
-      _StubTcgService({25: [ownedCard], 50: [uncaughtCard]}),
+      _StubTcgService({
+        25: [ownedCard],
+        50: [uncaughtCard]
+      }),
       localService,
       profiles,
     );
@@ -149,14 +158,15 @@ void main() {
     await tcgProvider.getPokemonCards(50);
 
     binderProvider = CardBinderProvider(
-      LocalServiceBinderRepository(
-          localService, DefaultTcgCardRepository(_StubTcgService(), localService)),
+      LocalServiceBinderRepository(localService,
+          DefaultTcgCardRepository(_StubTcgService(), localService)),
       profiles,
     );
     await binderProvider.load();
   });
 
-  testWidgets('AC7: starting in cycle mode shows the picker, not the browse grid',
+  testWidgets(
+      'AC7: starting in cycle mode shows the picker, not the browse grid',
       (tester) async {
     await pumpHarness(tester, pokemonId: 25, startInBrowse: false);
 
@@ -184,7 +194,8 @@ void main() {
     await settle(tester);
 
     expect(find.text('Choose which card to display'), findsNothing);
-    expect(binderProvider.pocketFor(25).runtimeType.toString(), 'SelectedPocket');
+    expect(
+        binderProvider.pocketFor(25).runtimeType.toString(), 'SelectedPocket');
   });
 
   testWidgets(
@@ -198,7 +209,8 @@ void main() {
     expect(find.text('All cards - tap to catch'), findsOneWidget);
 
     await tester.runAsync(() async {
-      await tester.tap(find.byKey(const Key('binder-browse-card-picker-modal-card-2')));
+      await tester
+          .tap(find.byKey(const Key('binder-browse-card-picker-modal-card-2')));
       await Future<void>.delayed(const Duration(milliseconds: 100));
     });
     await settle(tester);
@@ -209,5 +221,24 @@ void main() {
 
     expect(find.text('Choose which card to display'), findsOneWidget);
     expect(find.byKey(const Key('binder-confirm-selection')), findsOneWidget);
+  });
+
+  testWidgets(
+      "AC25: catching a Pokemon's first card from the browse view also "
+      "makes it the binder's displayed card immediately, without a "
+      'separate confirm step', (tester) async {
+    // Same starting point as AC9 above - Pokemon #50, nothing owned yet.
+    await pumpHarness(tester, pokemonId: 50, startInBrowse: true);
+
+    await tester.runAsync(() async {
+      await tester
+          .tap(find.byKey(const Key('binder-browse-card-picker-modal-card-2')));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await settle(tester);
+
+    final view = binderProvider.pocketFor(50);
+    expect(view, isA<SelectedPocket>());
+    expect((view as SelectedPocket).card.id, 'picker-modal-card-2');
   });
 }

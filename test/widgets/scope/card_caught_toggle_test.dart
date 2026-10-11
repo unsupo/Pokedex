@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:pokedex_app/models/pokeapi/pokemon.dart';
 import 'package:pokedex_app/models/tcg_card.dart';
+import 'package:pokedex_app/services/binder_repository.dart';
+import 'package:pokedex_app/services/card_binder_provider.dart';
 import 'package:pokedex_app/services/game_catalog.dart';
 import 'package:pokedex_app/services/local/isar_local_service.dart';
 import 'package:pokedex_app/services/local/local_service.dart';
@@ -14,7 +16,9 @@ import 'package:pokedex_app/services/profile_provider.dart';
 import 'package:pokedex_app/services/profiles/local_service_profile_repository.dart';
 import 'package:pokedex_app/services/scope_provider.dart';
 import 'package:pokedex_app/services/tcg_api_provider.dart';
+import 'package:pokedex_app/services/tcg_card_repository.dart';
 import 'package:pokedex_app/services/tcg_service.dart';
+import 'package:pokedex_app/utils/binder/binder_pocket.dart';
 import 'package:pokedex_app/widgets/scope/card_caught_toggle.dart';
 import 'package:provider/provider.dart';
 
@@ -26,15 +30,19 @@ import '../../support/isar_test_harness.dart';
 /// tolerates (it wraps each bulk fetch in a guard).
 class _OnePokemonService implements PokemonService {
   @override
-  Future<List<Pokemon>> getPokemonList() async =>
-      [Pokemon(id: 25, name: 'pikachu', url: 'https://pokeapi.co/api/v2/pokemon/25/')];
+  Future<List<Pokemon>> getPokemonList() async => [
+        Pokemon(
+            id: 25,
+            name: 'pikachu',
+            url: 'https://pokeapi.co/api/v2/pokemon/25/')
+      ];
 
   @override
   Future<List<int>> getVersionGroupIds() async => [];
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('${invocation.memberName} is offline in this test');
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
+      '${invocation.memberName} is offline in this test');
 }
 
 class _StubTcgService implements TcgService {
@@ -67,6 +75,7 @@ void main() {
   late ScopeProvider scopes;
   late PokemonApiProvider pokemonProvider;
   late TcgApiProvider tcgProvider;
+  late CardBinderProvider binderProvider;
 
   setUp(() async {
     profiles = ProfileProvider(
@@ -74,7 +83,8 @@ void main() {
       InMemoryActiveProfileStore(),
     );
     await profiles.load();
-    await profiles.createProfile('card-sync-${DateTime.now().microsecondsSinceEpoch}');
+    await profiles
+        .createProfile('card-sync-${DateTime.now().microsecondsSinceEpoch}');
 
     scopes = ScopeProvider(profiles, InMemoryScopeStore());
     await scopes.load(); // defaults to manual National, which is toggleable
@@ -90,6 +100,17 @@ void main() {
     await pokemonProvider.fetchData();
 
     tcgProvider = TcgApiProvider(_StubTcgService(), localService, profiles);
+
+    // toggleCardCaught now also updates the binder's displayed card (see
+    // card_caught_toggle.dart) - a real CardBinderProvider, same as the
+    // real app's provider graph (app_providers.dart), not a fake, so
+    // selectCard's actual Isar write path is exercised too.
+    binderProvider = CardBinderProvider(
+      LocalServiceBinderRepository(localService,
+          DefaultTcgCardRepository(_StubTcgService(), localService)),
+      profiles,
+    );
+    await binderProvider.load();
   });
 
   // Captures a BuildContext under both providers, without a button - the
@@ -100,8 +121,10 @@ void main() {
     late BuildContext captured;
     await tester.pumpWidget(MultiProvider(
       providers: [
-        ChangeNotifierProvider<PokemonApiProvider>.value(value: pokemonProvider),
+        ChangeNotifierProvider<PokemonApiProvider>.value(
+            value: pokemonProvider),
         ChangeNotifierProvider<TcgApiProvider>.value(value: tcgProvider),
+        ChangeNotifierProvider<CardBinderProvider>.value(value: binderProvider),
       ],
       child: MaterialApp(
         home: Builder(
@@ -131,7 +154,50 @@ void main() {
     expect(pokemonProvider.allPokemon[25]!.isCaught, isTrue);
   });
 
-  testWidgets('un-catching a card does not un-catch its Pokemon', (tester) async {
+  testWidgets(
+      "AC25: catching a Pokemon's first card also makes it the binder's "
+      'displayed card for that Pokemon, immediately', (tester) async {
+    final context = await pumpContext(tester);
+    final card = TcgCard(
+        id: 'sync-first',
+        name: 'Pikachu V',
+        nationalPokedexNumbers: const [25]);
+
+    await tester.runAsync(
+        () => toggleCardCaught(context, card, 25, pokemonAlreadyCaught: false));
+
+    final view = binderProvider.pocketFor(25);
+    expect(view, isA<SelectedPocket>());
+    expect((view as SelectedPocket).card.id, 'sync-first');
+  });
+
+  testWidgets(
+      'AC25: catching a second card for a Pokemon that already has a '
+      "displayed card does not silently replace it - that stays the "
+      "profile's deliberate choice", (tester) async {
+    final context = await pumpContext(tester);
+    final first = TcgCard(
+        id: 'sync-first',
+        name: 'Pikachu V',
+        nationalPokedexNumbers: const [25]);
+    final second = TcgCard(
+        id: 'sync-second',
+        name: 'Pikachu VMAX',
+        nationalPokedexNumbers: const [25]);
+
+    await tester.runAsync(() async {
+      await toggleCardCaught(context, first, 25, pokemonAlreadyCaught: false);
+      await toggleCardCaught(context, second, 25, pokemonAlreadyCaught: true);
+    });
+
+    final view = binderProvider.pocketFor(25);
+    expect(view, isA<SelectedPocket>());
+    expect((view as SelectedPocket).card.id, 'sync-first',
+        reason: 'the first catch is still the displayed card');
+  });
+
+  testWidgets('un-catching a card does not un-catch its Pokemon',
+      (tester) async {
     final context = await pumpContext(tester);
     final card = TcgCard(id: 'sync-2', name: 'Pikachu V');
     await tester.runAsync(

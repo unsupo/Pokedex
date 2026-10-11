@@ -1,9 +1,11 @@
 # Card binder view
 
-Status: **Done** (2026-10-10) - see "Third round" below for the most recent
-work (a page-turn blanking bug, zoom panning, pocket ID labels, a new
-search feature, and an overflow bug found while live-verifying the pocket
-labels), live-verified on `emulator-5554`. Visual design and page-turn
+Status: **Done** (2026-10-10) - see "Fourth round" below for the most
+recent work (catching a card now auto-selects it as the binder's displayed
+card, the first time a Pokemon gets one), and "Third round" above it (a
+page-turn blanking bug, zoom panning, pocket ID labels, a new search
+feature, and an overflow bug found while live-verifying the pocket
+labels); both live-verified on `emulator-5554`. Visual design and page-turn
 mechanics POC'd and approved in direction (see Animation); paper-bend polish deliberately
 deferred and still not built (unchanged from the POC). Per-pocket card
 selection (see below) added after the POC - changes the binder's layout
@@ -665,6 +667,124 @@ reverted, real-duration build, not the slowed one).
 | 22 | `pockets-with-name-number-labels.png` |
 | 23 | `search-jump-and-highlight.png` + `search-no-match-snackbar.png` |
 | 24 | `binder-pockets-overflow-before-fix.png` (bug) / `pockets-with-name-number-labels.png` + `binder-final-no-overflow.png` (fixed) |
+
+All screenshots: `docs/features/card-binder/screenshots/`.
+
+## Fourth round: catching a card didn't make it the binder's displayed card
+
+Status: **Done**, live-verified on `emulator-5554`.
+
+**Reported:** "it doesn't show the card you have it should put your highest
+priced card shown on top for that pokemon in that sleeve." Investigated by
+reading `computeBinderPocketView` and reconsidering the "Pocket model"
+section above: when nothing has been explicitly selected but at least one
+card is owned, the pocket intentionally shows the dimmed owned-indicator
+sprite (state 2), not a card. The literal request - auto-pick and display
+the highest-priced owned card whenever nothing is explicitly selected - was
+implemented first (`_highestPricedOwnedCard` in
+`utils/binder/binder_pocket.dart`, backed by a new `estimatedCardPriceValue`
+in `utils/tcg_price_util.dart`) and had tests written and passing.
+
+**Then the user clarified, correcting that direction:** "right so i selected
+the first pokemon card in bulbasaur but it shows a generic sprite if i
+haven't selected a card then the generic sprite is fine." This says two
+things: (1) the dimmed-sprite state 2 is *correct* and should stay exactly
+as designed when nothing has been chosen - the auto-highest-price default
+was solving a problem that wasn't actually the one reported; (2) the real
+bug is that an *explicit* selection isn't showing. **The highest-price
+auto-default work was reverted in full** (`git stash drop` on the two `lib/`
+files, `git checkout --` on the two test files) rather than left in
+alongside the real fix - it was the wrong diagnosis, not a complementary
+feature.
+
+**Re-investigated, this time tracing what "selected the first card" actually
+does in the UI.** Pokemon #1 (Bulbasaur) with nothing owned opens the card
+picker modal straight into the *browse* grid (`_BrowseView`,
+`startInBrowse: true` for an `EmptyPocket` - see "Tapping a pocket" above).
+Tapping a card there calls `toggleCardCaught`
+(`widgets/scope/card_caught_toggle.dart`), which **catches** the card - it
+never calls `CardBinderProvider.selectCard`. *Selecting* a card to display
+only happens via the separate cycle view's "Show this one" button
+(`_CycleView`), reached by tapping "back" out of the browse grid first.
+Catching and selecting were two fully disconnected steps, and nothing in
+the browse grid hints that catching alone doesn't choose the display card -
+a user tapping their first card there, exactly as the report describes,
+reasonably expects that to be "the card I picked."
+
+**The same gap exists a second, more commonly-hit way**: catching a card
+from `PokemonDetailsScreen`'s TCG Details tab (`_buildTcgDetailsTab`) - a
+completely independent screen from the binder, reached far more often than
+the binder's own browse view - calls the exact same `toggleCardCaught`, so
+it has the identical gap. A profile that only ever caught cards from the
+Cards tab (quite plausibly the actual path the user took, given "bulbasaur"
+is dex #1, the very first Pokemon) would see every single pocket stuck on
+the dimmed sprite, regardless of how many cards it owns.
+
+### Fix
+
+Centralized in `toggleCardCaught` itself (not duplicated at each catch
+call-site): when a card is newly caught (not un-caught) and the Pokemon
+*had no owned card at all* before this catch, it also becomes that
+Pokemon's displayed binder card (`CardBinderProvider.selectCard`).
+Deliberately scoped to "nothing owned yet" - catching a *second* or later
+card for a Pokemon that already has one on display does not silently
+replace it; an explicit choice among several owned cards stays entirely the
+profile's own, through the cycle view, exactly as before. This also means
+state 2 (dimmed sprite, "owned, nothing selected") is now reached only when
+a Pokemon ends up with owned cards but no selection through some other path
+than catching one directly here - e.g. a CSV import of caught cards (see
+`caught_pokemon_transfer_service.dart`) - where showing the generic
+indicator genuinely is correct, matching the user's own "if i haven't
+selected a card then the generic sprite is fine."
+
+`toggleCardCaught` is called from two real screens
+(`PokemonDetailsScreen`'s TCG Details tab and the binder's own
+`_BrowseView`) that previously built different, narrower provider trees in
+their own tests; one of those test files
+(`test/widgets/scope/card_caught_toggle_test.dart`) had no
+`CardBinderProvider` in its harness at all; a real one (not a fake) was
+added, matching the real app's provider graph in `app_providers.dart`.
+
+**A known, narrow edge case, not fixed here:** `CardBinderProvider` is a
+long-lived app-wide singleton, loaded once at startup
+(`app_providers.dart`'s `..load()`) and reloaded whenever `CardBinderScreen`
+itself opens. If a card is caught in the brief window before that initial
+`load()` resolves, for a Pokemon that already owned cards from a *previous*
+session, `ownedCardsFor` could read as empty from the not-yet-loaded cache
+and incorrectly re-trigger the auto-select, overwriting an existing
+selection. Narrow (a race measured in milliseconds to low hundreds of ms on
+real hardware) and consistent with an already-accepted risk in this
+codebase (`CardBinderScreen`'s own doc comment on why it reloads on
+`initState` exists for the same underlying reason) - not chased further
+here.
+
+### Acceptance criteria
+
+25. Catching a Pokemon's first card - from either the binder's own browse
+    view or `PokemonDetailsScreen`'s TCG Details tab - immediately makes it
+    that Pokemon's displayed binder card, without a separate confirm step.
+26. Catching a second or later card for a Pokemon that already has a
+    displayed card does not change the display - that stays an explicit
+    choice through the binder's cycle view.
+27. A Pokemon with owned cards but genuinely no selection by any path
+    (e.g. restored via CSV import) still shows the dimmed owned-indicator
+    sprite, not an error or a card - unchanged pre-existing behavior.
+
+### Traceability
+
+| AC | Test |
+|---|---|
+| 25 | `test/widgets/scope/card_caught_toggle_test.dart` - "AC25: catching a Pokemon's first card also makes it the binder's displayed card..." (details-screen-equivalent path) + `test/widgets/binder/card_picker_modal_test.dart` - "AC25: catching a Pokemon's first card from the browse view..." (binder's own path); both also live-verified, see below |
+| 26 | `test/widgets/scope/card_caught_toggle_test.dart` - "AC25: catching a second card for a Pokemon that already has a displayed card does not silently replace it..." |
+| 27 | Unchanged - already covered by `test/utils/binder/binder_pocket_test.dart` and `test/services/card_binder_provider_test.dart`'s existing `OwnedPocket` cases |
+
+**Live, on `emulator-5554`:** caught Bulbasaur's first TCG card from its
+own TCG Details tab (not the binder), then opened the binder directly to
+its page - showed the real card, sleeve-styled, immediately, no separate
+selection step (`bulbasaur-card-auto-selected-from-details-tab.png`).
+Then caught a *second* card for Bulbasaur from the same tab and reopened
+the binder - still showing the first card, confirming AC26
+(`bulbasaur-second-catch-does-not-override-display.png`).
 
 All screenshots: `docs/features/card-binder/screenshots/`.
 

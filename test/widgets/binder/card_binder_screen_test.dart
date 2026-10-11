@@ -36,8 +36,8 @@ class _TenPokemonService implements PokemonService {
   Future<List<int>> getVersionGroupIds() async => [];
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('${invocation.memberName} is offline in this test');
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
+      '${invocation.memberName} is offline in this test');
 }
 
 class _StubTcgService implements TcgService {
@@ -124,7 +124,8 @@ void main() {
   Future<void> pumpBinder(WidgetTester tester, {int? scrollToPokemonId}) async {
     await tester.pumpWidget(MultiProvider(
       providers: [
-        ChangeNotifierProvider<PokemonApiProvider>.value(value: pokemonProvider),
+        ChangeNotifierProvider<PokemonApiProvider>.value(
+            value: pokemonProvider),
         ChangeNotifierProvider<TcgApiProvider>.value(value: tcgProvider),
         ChangeNotifierProvider<CardBinderProvider>.value(value: binderProvider),
       ],
@@ -158,11 +159,18 @@ void main() {
     await pokemonProvider.fetchData();
 
     final cardForOne = TcgCard(
-        id: 'binder-screen-card-1', name: 'Bulbasaur Card', nationalPokedexNumbers: const [1]);
+        id: 'binder-screen-card-1',
+        name: 'Bulbasaur Card',
+        nationalPokedexNumbers: const [1]);
     final cardForThree = TcgCard(
-        id: 'binder-screen-card-3', name: 'Venusaur Card', nationalPokedexNumbers: const [3]);
+        id: 'binder-screen-card-3',
+        name: 'Venusaur Card',
+        nationalPokedexNumbers: const [3]);
     tcgProvider = TcgApiProvider(
-      _StubTcgService({1: [cardForOne], 3: [cardForThree]}),
+      _StubTcgService({
+        1: [cardForOne],
+        3: [cardForThree]
+      }),
       localService,
       profiles,
     );
@@ -172,8 +180,8 @@ void main() {
     await tcgProvider.getPokemonCards(2);
 
     binderProvider = CardBinderProvider(
-      LocalServiceBinderRepository(
-          localService, DefaultTcgCardRepository(_StubTcgService(), localService)),
+      LocalServiceBinderRepository(localService,
+          DefaultTcgCardRepository(_StubTcgService(), localService)),
       profiles,
     );
     await binderProvider.load();
@@ -225,12 +233,17 @@ void main() {
     expect(find.byKey(const Key('binder-pocket-10')), findsNothing);
   });
 
-  testWidgets('AC4: Pokemon #1 (owned, unselected) shows the owned-indicator '
-      'state, not bare card art or the + state', (tester) async {
+  testWidgets(
+      'AC25/AC28 (Seventh round): catching Pokemon #1\'s first card auto-'
+      "selects it (not the generic owned-indicator sprite, not the + state) "
+      "- card_caught_toggle.dart's own first-catch auto-select "
+      "(AC25) doesn't apply here (this catches directly through "
+      'TcgApiProvider, not through either real catch screen), so this '
+      "specifically exercises CardBinderProvider.load()'s catch-up pass",
+      (tester) async {
     await catchPokemon1Card(tester);
     await pumpBinder(tester);
 
-    // The owned indicator renders Pokemon #1's own sprite, not the card.
     expect(find.byKey(const Key('binder-pocket-1')), findsOneWidget);
     expect(
         find.descendant(
@@ -238,9 +251,16 @@ void main() {
           matching: find.byIcon(Icons.add_circle_outline),
         ),
         findsNothing);
+    expect(
+        binderProvider
+            .pocketFor(1, pokemonCaught: false)
+            .runtimeType
+            .toString(),
+        'SelectedPocket');
   });
 
-  testWidgets('AC5: a Pokemon with nothing owned shows the + state, and '
+  testWidgets(
+      'AC5: a Pokemon with nothing owned shows the + state, and '
       'tapping it opens the browse view directly (AC8)', (tester) async {
     await pumpBinder(tester);
 
@@ -251,7 +271,8 @@ void main() {
         ),
         findsOneWidget);
 
-    await tapAndWaitForRealWork(tester, find.byKey(const Key('binder-pocket-2')));
+    await tapAndWaitForRealWork(
+        tester, find.byKey(const Key('binder-pocket-2')));
 
     expect(find.text('All cards - tap to catch'), findsOneWidget);
     // No cycle controls, since there's nothing to cycle through yet.
@@ -260,23 +281,32 @@ void main() {
 
   testWidgets(
       'AC7+AC10: tapping an owned pocket opens the cycle picker, and '
-      'confirming a selection persists it and updates the pocket', (tester) async {
+      'confirming a selection persists it and updates the pocket',
+      (tester) async {
     await pumpBinder(tester);
 
-    await tapAndWaitForRealWork(tester, find.byKey(const Key('binder-pocket-3')));
+    await tapAndWaitForRealWork(
+        tester, find.byKey(const Key('binder-pocket-3')));
 
     // The cycle picker, not the full browse grid.
     expect(find.text('Choose which card to display'), findsOneWidget);
     expect(find.text('All cards - tap to catch'), findsNothing);
 
-    await tapAndAwaitRealWrite(tester, find.byKey(const Key('binder-confirm-selection')));
+    await tapAndAwaitRealWrite(
+        tester, find.byKey(const Key('binder-confirm-selection')));
 
     // The modal closed and the pocket is still showing a selected card.
     expect(find.text('Choose which card to display'), findsNothing);
-    expect(binderProvider.pocketFor(3).runtimeType.toString(), 'SelectedPocket');
+    expect(
+        binderProvider
+            .pocketFor(3, pokemonCaught: false)
+            .runtimeType
+            .toString(),
+        'SelectedPocket');
   });
 
-  testWidgets('AC1: scrollToPokemonId opens already turned to that Pokemon\'s page',
+  testWidgets(
+      'AC1: scrollToPokemonId opens already turned to that Pokemon\'s page',
       (tester) async {
     await pumpBinder(tester, scrollToPokemonId: 10);
 
@@ -287,8 +317,7 @@ void main() {
     expect(find.byKey(const Key('binder-pocket-1')), findsOneWidget);
   });
 
-  testWidgets(
-      'AC11: tapping the next-page control turns exactly one page',
+  testWidgets('AC11: tapping the next-page control turns exactly one page',
       (tester) async {
     await pumpBinder(tester);
     // Starting spread: no left page yet, right page is dex #1-9.

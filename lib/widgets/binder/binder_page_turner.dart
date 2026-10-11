@@ -28,13 +28,6 @@ class BinderPageTurner extends StatefulWidget {
   final Widget Function(BuildContext context, int pageIndex) pageBuilder;
   final Widget spine;
 
-  /// Whether the horizontal drag-to-turn-page gesture is active. The caller
-  /// (`CardBinderScreen`) turns this off while the surrounding
-  /// `InteractiveViewer` is zoomed in and handling one-finger panning
-  /// instead - see "Third round" in docs/features/card-binder.md (AC21).
-  /// The tap-driven [turn] method is unaffected either way.
-  final bool dragEnabled;
-
   const BinderPageTurner({
     super.key,
     required this.rightPageIndex,
@@ -42,7 +35,6 @@ class BinderPageTurner extends StatefulWidget {
     required this.onPageChanged,
     required this.pageBuilder,
     required this.spine,
-    this.dragEnabled = true,
   });
 
   @override
@@ -91,13 +83,31 @@ class BinderPageTurnerState extends State<BinderPageTurner>
     setState(() => _direction = 0);
   }
 
-  void _onDragStart(DragStartDetails details) {
+  // Driven externally by CardBinderScreen's InteractiveViewer
+  // (onInteractionStart/Update/End), not by a GestureDetector of this
+  // widget's own - see "Sixth round" in docs/features/card-binder.md
+  // (AC31). A `GestureDetector` here, sibling to InteractiveViewer's own
+  // scale/pan recognizer, reliably won every single-finger touch before a
+  // second finger ever got a chance to turn it into a pinch (recognizers
+  // don't get a second look once the arena resolves), so pinch-to-zoom
+  // could never actually *start*. Routing through InteractiveViewer's own
+  // gesture stream instead means there is exactly one recognizer in the
+  // whole subtree - nothing to compete with - and `details.pointerCount`
+  // tells the caller the moment a second finger joins, so it can cancel
+  // the in-progress page-turn and hand off to native pinch-zoom cleanly.
+
+  /// Call from `onInteractionStart` when the gesture begins with exactly
+  /// one pointer and the binder isn't already zoomed in. [globalX] is that
+  /// pointer's (focal point's) global x position.
+  void startExternalDrag(double globalX) {
     if (isTurning && _controller.isAnimating) return;
-    _dragStartX = details.globalPosition.dx;
+    _dragStartX = globalX;
   }
 
-  void _onDragUpdate(DragUpdateDetails details) {
-    final dx = details.globalPosition.dx - _dragStartX;
+  /// Call from `onInteractionUpdate` for as long as the gesture stays a
+  /// single pointer. [globalX] is the current focal point's global x.
+  void updateExternalDrag(double globalX) {
+    final dx = globalX - _dragStartX;
     final direction = dx < 0 ? 1 : -1;
     if (direction > 0 && !_canTurnForward) return;
     if (direction < 0 && !_canTurnBack) return;
@@ -107,7 +117,18 @@ class BinderPageTurnerState extends State<BinderPageTurner>
     });
   }
 
-  Future<void> _onDragEnd(DragEndDetails details) async {
+  /// Call when a second pointer joins mid-gesture (it's becoming a pinch,
+  /// not a page turn) - snaps back to flat with no page change, same as a
+  /// drag released short of the halfway threshold.
+  void cancelExternalDrag() {
+    if (_direction == 0) return;
+    _controller.value = 0;
+    setState(() => _direction = 0);
+  }
+
+  /// Call from `onInteractionEnd` to resolve an in-progress external drag:
+  /// completes the turn past the halfway threshold, snaps back otherwise.
+  Future<void> endExternalDrag() async {
     if (_direction == 0) return;
     final direction = _direction;
     if (_controller.value > 0.5) {
@@ -232,18 +253,10 @@ class BinderPageTurnerState extends State<BinderPageTurner>
         ],
       );
 
-      // No gesture detector at all while drag is disabled (zoomed in, per
-      // AC21) - rather than attaching one whose handlers no-op, so the
-      // surrounding InteractiveViewer's own one-finger pan recognizer has
-      // nothing competing with it for that pointer in the gesture arena.
-      if (!widget.dragEnabled) return spread;
-
-      return GestureDetector(
-        onHorizontalDragStart: _onDragStart,
-        onHorizontalDragUpdate: _onDragUpdate,
-        onHorizontalDragEnd: _onDragEnd,
-        child: spread,
-      );
+      // No GestureDetector of this widget's own - see the comment on
+      // startExternalDrag above. CardBinderScreen drives the turn directly
+      // via InteractiveViewer's own gesture callbacks.
+      return spread;
     });
   }
 

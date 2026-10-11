@@ -15,6 +15,21 @@ String? estimatedCardPrice(TcgCard card) {
   return null;
 }
 
+/// The raw number behind [estimatedCardPrice], for *comparing* cards
+/// against each other - e.g. picking a Pokemon's priciest owned card as its
+/// binder pocket's default display (see `highestPricedOwnedCard` in
+/// `utils/binder/binder_pocket.dart` and "Seventh round" in
+/// docs/features/card-binder.md). Same source preference as
+/// [estimatedCardPrice] (TCGPlayer USD over Cardmarket EUR), but
+/// deliberately currency-naive: a USD value and a EUR value are compared as
+/// plain numbers, not converted. Acceptable here because the comparison
+/// only ever runs within one Pokemon's own owned cards, where "which of
+/// these has *some* real price signal" is what matters, not currency-exact
+/// ranking. Returns null when the card has no pricing data at all, same as
+/// [estimatedCardPrice].
+double? estimatedCardPriceValue(TcgCard card) =>
+    _bestTcgplayerPrice(card) ?? _bestCardmarketPrice(card);
+
 double? _bestTcgplayerPrice(TcgCard card) {
   final prices = card.tcgplayer?.prices;
   if (prices == null) return null;

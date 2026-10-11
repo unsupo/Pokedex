@@ -195,7 +195,11 @@ void main() {
 
     expect(find.text('Choose which card to display'), findsNothing);
     expect(
-        binderProvider.pocketFor(25).runtimeType.toString(), 'SelectedPocket');
+        binderProvider
+            .pocketFor(25, pokemonCaught: false)
+            .runtimeType
+            .toString(),
+        'SelectedPocket');
   });
 
   testWidgets(
@@ -237,7 +241,7 @@ void main() {
     });
     await settle(tester);
 
-    final view = binderProvider.pocketFor(50);
+    final view = binderProvider.pocketFor(50, pokemonCaught: false);
     expect(view, isA<SelectedPocket>());
     expect((view as SelectedPocket).card.id, 'picker-modal-card-2');
   });

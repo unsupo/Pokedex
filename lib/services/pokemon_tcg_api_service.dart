@@ -47,7 +47,8 @@ class PokemonTcgApiService implements TcgService {
   /// Retries [_retryableStatuses] up to [_maxAttempts] times, with a short
   /// backoff between attempts. Any other status (success or a genuine client
   /// error) returns immediately on the first attempt.
-  Future<http.Response> _getWithRetry(Uri url, Map<String, String> headers) async {
+  Future<http.Response> _getWithRetry(
+      Uri url, Map<String, String> headers) async {
     late http.Response response;
     for (var attempt = 1; attempt <= _maxAttempts; attempt++) {
       response = await _client.get(url, headers: headers);
@@ -75,17 +76,38 @@ class PokemonTcgApiService implements TcgService {
     };
 
     try {
-      final response = await http.get(url, headers: headers);
+      // Same transient-failure retry as getCardsByNationalDexId - this
+      // endpoint hits the same upstream 500/502 flakiness (confirmed live,
+      // see "Fifth round" in docs/features/card-binder.md, where this was
+      // the previous version of this method's PLAIN http.get with no
+      // retry at all).
+      final response = await _getWithRetry(url, headers);
 
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      } else {
+      if (response.statusCode != 200) {
         if (kDebugMode) {
           print('Request failed with status: ${response.statusCode}.');
           print('Response body: ${response.body}');
         }
         return null;
       }
+
+      // Bug found live (see "Fifth round" in docs/features/card-binder.md):
+      // this used to `return jsonDecode(response.body)` directly - the raw
+      // decoded JSON (`{"data": {...}}`, not even unwrapped), silently
+      // violating this method's own `Future<TcgCard?>` return type. It
+      // never actually worked; nothing had called it in production until
+      // the binder's new backfill did, where every single call failed with
+      // "type '_Map<String, dynamic>' is not a subtype of type
+      // 'FutureOr<TcgCard?>'" - caught by the backfill's own per-card
+      // try/catch, so the failure was silent instead of crashing, which is
+      // exactly why it went unnoticed: zero test coverage on this method
+      // (see pokemon_tcg_api_service_test.dart) and no caller to exercise
+      // it until now. Same "data" envelope as the list endpoint, just one
+      // object instead of a list.
+      final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
+      final cardJson = jsonResponse['data'] as Map<String, dynamic>?;
+      if (cardJson == null) return null;
+      return TcgCard.fromJson(cardJson);
     } catch (e) {
       if (kDebugMode) {
         print('Error fetching card: $e');

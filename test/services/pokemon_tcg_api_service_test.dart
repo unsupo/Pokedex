@@ -22,7 +22,8 @@ void main() {
     // api.pokemontcg.io is observed to return 500/502 for a request, then
     // succeed on an immediate retry of the exact same request - this is
     // upstream flakiness, not a problem with the query or the API key.
-    test('a 500 then a 502 then a 200 succeeds without the caller seeing an error',
+    test(
+        'a 500 then a 502 then a 200 succeeds without the caller seeing an error',
         () async {
       var calls = 0;
       final client = MockClient((request) async {
@@ -42,7 +43,8 @@ void main() {
 
     test('gives up after exhausting retries and throws, naming the last status',
         () async {
-      final client = MockClient((_) async => http.Response('still broken', 500));
+      final client =
+          MockClient((_) async => http.Response('still broken', 500));
       final service = PokemonTcgApiService(_UnusedLocalService(),
           client: client, delay: (_) async {});
 
@@ -52,7 +54,8 @@ void main() {
       );
     });
 
-    test('does not retry a non-transient error, such as a bad request', () async {
+    test('does not retry a non-transient error, such as a bad request',
+        () async {
       var calls = 0;
       final client = MockClient((_) async {
         calls++;
@@ -62,10 +65,12 @@ void main() {
           client: client, delay: (_) async {});
 
       await expectLater(service.getCardsByNationalDexId(25), throwsException);
-      expect(calls, 1, reason: 'a 400 will never succeed on retry, so do not wait');
+      expect(calls, 1,
+          reason: 'a 400 will never succeed on retry, so do not wait');
     });
 
-    test('tolerates a longer failure streak observed against the real API (4 failures then a success)',
+    test(
+        'tolerates a longer failure streak observed against the real API (4 failures then a success)',
         () async {
       var calls = 0;
       final statuses = [500, 502, 500, 500, 200];
@@ -91,11 +96,74 @@ void main() {
       });
       final service = PokemonTcgApiService(_UnusedLocalService(),
           client: client,
-          delay: (_) async => fail('should not delay when the first attempt succeeds'));
+          delay: (_) async =>
+              fail('should not delay when the first attempt succeeds'));
 
       await service.getCardsByNationalDexId(25);
 
       expect(calls, 1);
+    });
+  });
+
+  group('PokemonTcgApiService.getCard', () {
+    // Bug found live (see "Fifth round" in docs/features/card-binder.md):
+    // this method used to `return jsonDecode(response.body)` directly,
+    // silently violating its own `Future<TcgCard?>` return type - caught
+    // nowhere, because nothing had ever called it in production, and this
+    // test group did not previously exist at all.
+    test(
+        'AC28 (the backfill that depends on this): parses a real single-'
+        'card response, not the raw decoded JSON', () async {
+      final client = MockClient((request) async {
+        expect(request.url.toString(), contains('/cards/swsh1-1'));
+        return http.Response(
+            '{"data": {"id": "swsh1-1", "name": "Celebi V", '
+            '"nationalPokedexNumbers": [251]}}',
+            200);
+      });
+      final service = PokemonTcgApiService(_UnusedLocalService(),
+          client: client, delay: (_) async {});
+
+      final card = await service.getCard('swsh1-1');
+
+      expect(card, isNotNull);
+      expect(card!.id, 'swsh1-1');
+      expect(card.name, 'Celebi V');
+      expect(card.nationalPokedexNumbers, [251]);
+    });
+
+    test('returns null for a non-200 response', () async {
+      final client = MockClient((_) async => http.Response('not found', 404));
+      final service = PokemonTcgApiService(_UnusedLocalService(),
+          client: client, delay: (_) async {});
+
+      expect(await service.getCard('missing-id'), isNull);
+    });
+
+    test('returns null rather than throwing on malformed JSON', () async {
+      final client = MockClient((_) async => http.Response('not json', 200));
+      final service = PokemonTcgApiService(_UnusedLocalService(),
+          client: client, delay: (_) async {});
+
+      expect(await service.getCard('bad-id'), isNull);
+    });
+
+    test('retries a transient failure same as getCardsByNationalDexId',
+        () async {
+      var calls = 0;
+      final client = MockClient((request) async {
+        calls++;
+        if (calls == 1) return http.Response('server error', 500);
+        return http.Response(
+            '{"data": {"id": "swsh1-2", "name": "Eternatus VMAX"}}', 200);
+      });
+      final service = PokemonTcgApiService(_UnusedLocalService(),
+          client: client, delay: (_) async {});
+
+      final card = await service.getCard('swsh1-2');
+
+      expect(calls, 2);
+      expect(card?.name, 'Eternatus VMAX');
     });
   });
 }

@@ -111,6 +111,12 @@ class InMemoryBinderRepository implements BinderRepository {
   final Map<int, Set<String>> _extraOwnedIdsByProfile = {};
   final Map<int, List<BinderCardSelection>> _selectionsByProfile = {};
 
+  /// How many times [backfillUncachedCaughtCards] has been called - lets a
+  /// test confirm [CardBinderProvider.load] actually calls it, without this
+  /// fake needing to simulate a real network fetch (that's covered at the
+  /// repository level instead, in tcg_card_repository_test.dart).
+  int backfillCallCount = 0;
+
   /// Marks [cardId] as owned by [profileId] without giving it cached
   /// [TcgCard] data - the "selected but not cached yet" edge case.
   void markOwnedWithoutData(int profileId, String cardId) {
@@ -123,8 +129,7 @@ class InMemoryBinderRepository implements BinderRepository {
 
   @override
   Future<Set<String>> getCaughtCardIdsForProfile(int profileId) async => {
-        ...(caughtCardsByProfile[profileId] ?? const [])
-            .map((c) => c.id!),
+        ...(caughtCardsByProfile[profileId] ?? const []).map((c) => c.id!),
         ...(_extraOwnedIdsByProfile[profileId] ?? const {}),
       };
 
@@ -142,5 +147,13 @@ class InMemoryBinderRepository implements BinderRepository {
       pokemonId: pokemonId,
       selectedCardId: cardId,
     ));
+  }
+
+  // No-op - this fake's "caught" data already doubles as "cached" (see the
+  // class doc), so there's nothing to simulate backfilling; it only tracks
+  // that it was called.
+  @override
+  Future<void> backfillUncachedCaughtCards(int profileId) async {
+    backfillCallCount++;
   }
 }

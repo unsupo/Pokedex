@@ -31,48 +31,99 @@ void main() {
     return provider;
   }
 
+  group('CardBinderProvider.load', () {
+    test(
+        'AC28: backfills uncached caught cards before reading them - see '
+        'tcg_card_repository_test.dart for the actual fetch/cache behavior',
+        () async {
+      await buildProvider();
+
+      expect(repository.backfillCallCount, 1);
+    });
+
+    test('backfills again on every reload, not just the first', () async {
+      final provider = await buildProvider();
+
+      await provider.load();
+
+      expect(repository.backfillCallCount, 2);
+    });
+  });
+
   group('CardBinderProvider.pocketFor', () {
     test('AC5: a Pokemon with nothing owned shows the empty state', () async {
       final provider = await buildProvider();
 
-      expect(provider.pocketFor(1), isA<EmptyPocket>());
+      expect(provider.pocketFor(1, pokemonCaught: false), isA<EmptyPocket>());
     });
 
-    test('AC4: a Pokemon with an owned, unselected card shows the owned state',
-        () async {
+    test(
+        'AC25/AC28 (Seventh round catch-up): an owned card with no selection '
+        'ever recorded gets auto-selected and persisted during load, rather '
+        "than staying on the owned-indicator state", () async {
       repository.caughtCardsByProfile[ash] = [
         TcgCard(id: 'c-1', name: 'Bulbasaur Card', nationalPokedexNumbers: [1]),
       ];
       final provider = await buildProvider();
 
-      expect(provider.pocketFor(1), isA<OwnedPocket>());
+      final view = provider.pocketFor(1, pokemonCaught: false);
+      expect(view, isA<SelectedPocket>());
+      expect((view as SelectedPocket).card.id, 'c-1');
+      final persisted = await repository.getSelectionsForProfile(ash);
+      expect(persisted.single.selectedCardId, 'c-1');
+    });
+
+    test(
+        'the catch-up picks the highest-priced of several owned-but-never-'
+        'selected cards for the same Pokemon', () async {
+      final cheap = TcgCard(
+          id: 'c-cheap',
+          name: 'Bulbasaur (common)',
+          nationalPokedexNumbers: [1],
+          tcgplayer: Tcgplayer(prices: PriceData(market: 1)));
+      final pricey = TcgCard(
+          id: 'c-pricey',
+          name: 'Bulbasaur (rare)',
+          nationalPokedexNumbers: [1],
+          tcgplayer: Tcgplayer(prices: PriceData(market: 500)));
+      repository.caughtCardsByProfile[ash] = [cheap, pricey];
+      final provider = await buildProvider();
+
+      final view = provider.pocketFor(1, pokemonCaught: false);
+      expect(view, isA<SelectedPocket>());
+      expect((view as SelectedPocket).card.id, 'c-pricey');
     });
 
     test('AC3: a Pokemon with a selected card shows that card', () async {
-      final card =
-          TcgCard(id: 'c-1', name: 'Bulbasaur Card', nationalPokedexNumbers: [1]);
+      final card = TcgCard(
+          id: 'c-1', name: 'Bulbasaur Card', nationalPokedexNumbers: [1]);
       repository.caughtCardsByProfile[ash] = [card];
       await repository.setSelection(ash, 1, 'c-1');
       final provider = await buildProvider();
 
-      final view = provider.pocketFor(1);
+      final view = provider.pocketFor(1, pokemonCaught: false);
       expect(view, isA<SelectedPocket>());
       expect((view as SelectedPocket).card.id, 'c-1');
     });
 
     test(
         'AC6: un-catching the selected card falls back to owned when another '
-        "card for this Pokemon is still owned", () async {
+        "card for this Pokemon is still owned - also confirms the Seventh-"
+        'round catch-up never overrides an existing (even now-invalid) '
+        'selection row, since one is already recorded for this Pokemon',
+        () async {
       repository.caughtCardsByProfile[ash] = [
-        TcgCard(id: 'c-2', name: 'Bulbasaur Card 2', nationalPokedexNumbers: [1]),
+        TcgCard(
+            id: 'c-2', name: 'Bulbasaur Card 2', nationalPokedexNumbers: [1]),
       ];
       await repository.setSelection(ash, 1, 'c-1'); // c-1 no longer owned
       final provider = await buildProvider();
 
-      expect(provider.pocketFor(1), isA<OwnedPocket>());
+      expect(provider.pocketFor(1, pokemonCaught: false), isA<OwnedPocket>());
     });
 
-    test('AC14: a second profile never sees the first profile\'s cards or '
+    test(
+        'AC14: a second profile never sees the first profile\'s cards or '
         'selections', () async {
       repository.caughtCardsByProfile[ash] = [
         TcgCard(id: 'c-1', name: 'Bulbasaur Card', nationalPokedexNumbers: [1]),
@@ -82,7 +133,31 @@ void main() {
       await profiles.setActive(misty);
       await provider.load();
 
-      expect(provider.pocketFor(1), isA<EmptyPocket>());
+      expect(provider.pocketFor(1, pokemonCaught: false), isA<EmptyPocket>());
+    });
+
+    test(
+        'AC39 (Ninth round): a caught Pokemon with no TCG card at all shows '
+        'the owned-indicator state, not the + state', () async {
+      final provider = await buildProvider();
+
+      expect(provider.pocketFor(1, pokemonCaught: true), isA<OwnedPocket>());
+    });
+
+    test(
+        'AC39: an explicit selection still wins over pokemonCaught, same as '
+        'it already wins over owned-but-uncached', () async {
+      final card =
+          TcgCard(id: 'c-1', name: 'Bulbasaur Card', nationalPokedexNumbers: [
+        1,
+      ]);
+      repository.caughtCardsByProfile[ash] = [card];
+      await repository.setSelection(ash, 1, 'c-1');
+      final provider = await buildProvider();
+
+      final view = provider.pocketFor(1, pokemonCaught: true);
+      expect(view, isA<SelectedPocket>());
+      expect((view as SelectedPocket).card.id, 'c-1');
     });
   });
 
@@ -96,7 +171,8 @@ void main() {
       ];
       final provider = await buildProvider();
 
-      expect(provider.ownedCardsFor(25).map((c) => c.id).toSet(), {'c-1', 'c-2'});
+      expect(
+          provider.ownedCardsFor(25).map((c) => c.id).toSet(), {'c-1', 'c-2'});
     });
   });
 
@@ -105,11 +181,13 @@ void main() {
         'AC10: persists the selection and updates the pocket immediately, '
         "without waiting for a reload", () async {
       final provider = await buildProvider();
-      final card = TcgCard(id: 'c-9', name: 'Mew', nationalPokedexNumbers: [151]);
+      final card =
+          TcgCard(id: 'c-9', name: 'Mew', nationalPokedexNumbers: [151]);
 
       await provider.selectCard(151, card);
 
-      expect(provider.pocketFor(151), isA<SelectedPocket>());
+      expect(
+          provider.pocketFor(151, pokemonCaught: false), isA<SelectedPocket>());
       final persisted = await repository.getSelectionsForProfile(ash);
       expect(persisted.single.selectedCardId, 'c-9');
     });
@@ -132,12 +210,16 @@ void main() {
         TcgCard(id: 'm-1', name: 'Starmie', nationalPokedexNumbers: [121]),
       ];
       final provider = await buildProvider();
-      expect(provider.pocketFor(121), isA<EmptyPocket>());
+      expect(provider.pocketFor(121, pokemonCaught: false), isA<EmptyPocket>());
 
       await profiles.setActive(misty);
       await pumpEventQueue();
 
-      expect(provider.pocketFor(121), isA<OwnedPocket>());
+      // SelectedPocket, not OwnedPocket, per the Seventh-round catch-up -
+      // misty's m-1 has never had a selection recorded, so it gets one
+      // automatically as part of this reload.
+      expect(
+          provider.pocketFor(121, pokemonCaught: false), isA<SelectedPocket>());
     });
   });
 }

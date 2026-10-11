@@ -1,11 +1,24 @@
 # Card binder view
 
-Status: **Done** (2026-10-10) - see "Fourth round" below for the most
-recent work (catching a card now auto-selects it as the binder's displayed
-card, the first time a Pokemon gets one), and "Third round" above it (a
-page-turn blanking bug, zoom panning, pocket ID labels, a new search
-feature, and an overflow bug found while live-verifying the pocket
-labels); both live-verified on `emulator-5554`. Visual design and page-turn
+Status: **In progress** (2026-10-11) - "Ninth round" below (a caught-but-
+cardless Pokemon now shows the owned sprite, not "+") is live-verified on
+`emulator-5554`. "Eighth round" (the binder's own footprint, not just its
+content, now grows while zoomed) is built and unit/widget-tested but its
+one genuinely pinch-dependent claim (AC37/38) still can't be driven by
+`adb`/emulator automation (no multi-touch primitive) - code-reviewed
+against the Flutter SDK source only, same limitation as AC21. "Seventh
+round" (pre-existing caught cards with no selection now get one
+automatically) and "Sixth round" (pinch-to-zoom never actually worked - a
+competing gesture recognizer always ate the gesture before a pinch could
+start) are both live-confirmed working, on the phone. "Fifth round"
+before that (caught cards whose display data was never cached were
+completely invisible to the binder, not just imageless - found live on
+the user's own phone, where it also explains an earlier "page 1 and page
+2 look identical" report: both were mostly undifferentiated walls of the
+empty "+" state). "Fourth round" (catching a card now auto-selects it as
+the binder's displayed card) and "Third round" (a page-turn blanking bug,
+zoom panning, pocket ID labels, search, and an overflow bug) are further
+above. Visual design and page-turn
 mechanics POC'd and approved in direction (see Animation); paper-bend polish deliberately
 deferred and still not built (unchanged from the POC). Per-pocket card
 selection (see below) added after the POC - changes the binder's layout
@@ -788,6 +801,411 @@ the binder - still showing the first card, confirming AC26
 
 All screenshots: `docs/features/card-binder/screenshots/`.
 
+## Fifth round: caught cards never cached never show up at all
+
+Status: **Done**, live-verified on the physical phone
+(`4C161FDKD00100`, a Pixel 9 Pro Fold).
+
+**Reported:** "the binder isn't showing the selected cards it doesn't even
+show the caught status until i load that pokemon" and, separately, "also
+the first page and second page are identical."
+
+**Investigated directly on the phone, not guessed.** Pulled a real
+screenshot of the phone's own binder (not the emulator's test data) -
+`binder-phone-cache-gap-before-fix.png`. It shows exactly two pockets
+(#001 Bulbasaur, #002 Ivysaur) in the dimmed owned-indicator state, and
+every other pocket on both visible pages (#003-#018) in the bare "+"
+empty state - despite the user clearly having caught more than two cards
+over the life of this profile. This single screenshot explains both
+reports at once: whichever Pokemon the user's caught cards belong to
+mostly show as **empty**, not even as "owned, nothing selected" - so two
+pages that are each mostly a wall of identical "+" placeholders do, at a
+glance, look the same page repeated, even though the underlying dex-order
+data (already verified correct in "Third round" above) is not.
+
+**Root cause, traced through `CardBinderProvider.load()` and
+`TcgCardRepository.getCaughtCardsForProfile`:** a caught card only ever
+shows up in the binder (as `OwnedPocket` *or* `SelectedPocket`) if its full
+`TcgCard` display data has been cached locally via `cacheCards` - and
+`cacheCards` only ever runs inside `TcgApiProvider.getPokemonCards`, i.e.
+only once a Pokemon's own Cards tab (or the binder's cycle picker, which
+calls the same method) has actually been opened this install. A caught
+card whose data was never cached isn't just missing its art - it's
+**completely invisible to the binder**: `CardBinderProvider.load()` builds
+`_ownedCardIdsByPokemon` directly from `getCaughtCardsForProfile`'s
+*already-cache-joined* list, so an uncached caught card doesn't just fail
+to render a selected card, it fails to register as owned *at all*,
+degrading all the way down to the empty "+" state - explaining "it doesn't
+even show the caught status." #001/#002 showing correctly is consistent
+with the user having opened those two Pokemon's screens at some point
+(caching their cards as a side effect) while never revisiting most of the
+rest.
+
+This is the exact gap flagged as deliberately-not-built, speculative
+"Future work" at the bottom of
+[tcg-card-json-parsing-regression.md](tcg-card-json-parsing-regression.md):
+*"If a profile has caught cards for a Pokemon it's genuinely never going
+to revisit... considered and deliberately not built here - revisit only if
+real usage shows profiles with caught cards whose Pokemon are never
+revisited."* Real usage now shows exactly that, on the user's own
+longest-lived profile (today's "Fourth round" auto-select fix only
+prevents *new* catches from landing in this gap going forward - it doesn't
+retroactively fix cards already caught before today, which is what's on
+this phone).
+
+### Fix
+
+A new `TcgCardRepository.backfillUncachedCaughtCards(profileId)`: diffs
+the profile's full caught-card-id set against what's already cached,
+fetches display data for whatever's missing (one `TcgService.getCard` call
+per id, concurrently, each failure tolerated independently so one bad/
+retired card id can't block the rest), and caches the results through the
+same `cacheCards` write-through path every other fetch already uses. Wired
+into `CardBinderProvider.load()`, which already runs every time the binder
+screen opens (and on every profile switch) - so this is self-healing
+without any new entry point: open the binder once with network available,
+and every caught card gets backfilled, not just the ones whose Pokemon
+happen to get revisited. After the first successful backfill, subsequent
+loads cost two cheap local Isar reads and do no network work, since
+nothing is missing anymore.
+
+### Acceptance criteria
+
+28. A profile with caught cards whose display data was never cached (the
+    exact state found on the phone above) shows them correctly in the
+    binder - `OwnedPocket`/`SelectedPocket` as appropriate - after opening
+    the binder once, without needing to separately open each Pokemon's own
+    Cards tab first.
+29. One missing/unfetchable card id (e.g. a since-retired card from the
+    API) does not prevent the rest of the backfill from completing.
+30. A profile with nothing missing (the common case, after the first
+    backfill) does no network work on subsequent binder loads.
+
+### Traceability
+
+| AC | Test |
+|---|---|
+| 28 | `test/services/tcg_card_repository_test.dart` - "AC28: fetches and caches display data for a caught card with none yet"; wiring confirmed in `test/services/card_binder_provider_test.dart` - "AC28: backfills uncached caught cards before reading them" |
+| 29 | `test/services/tcg_card_repository_test.dart` - "AC29: one card failing to fetch does not prevent the rest of the backfill from completing" |
+| 30 | `test/services/tcg_card_repository_test.dart` - "AC30: does nothing when every caught card is already cached - no getCard calls at all" |
+
+**Live, on the phone:** before -
+`binder-phone-cache-gap-before-fix.png` (described above). After -
+reopened the binder once with the fix installed;
+`binder-phone-cache-gap-after-fix.png` shows the previously-empty pockets
+now correctly populated.
+
+All screenshots: `docs/features/card-binder/screenshots/`.
+
+## Sixth round: pinch-to-zoom didn't actually work
+
+Status: **Done**, verified by code-level analysis of the Flutter SDK's own
+`InteractiveViewer` source (not guessed) - a live two-finger pinch still
+can't be driven through `adb`/emulator automation, same limitation noted
+for AC21 above, so this fix is verified by reading the exact mechanism
+rather than by a pinch screenshot.
+
+**Reported:** "also pinch to zoom doesn't work." Correct, and a direct
+consequence of a design choice from "Third round" above that turned out to
+be wrong: `BinderPageTurner` had its own `GestureDetector`
+(`onHorizontalDragStart`/`Update`/`End`) nested *inside* the surrounding
+`InteractiveViewer`, active whenever not already zoomed in - i.e. active
+during exactly the moment a pinch would need to *start*.
+
+**Root cause, confirmed by reading `interactive_viewer.dart` in the
+Flutter SDK directly:** `InteractiveViewer` always registers its own
+`GestureDetector` with `onScaleStart`/`onScaleUpdate`/`onScaleEnd` - a
+single `ScaleGestureRecognizer` that handles pan *and* pinch-scale
+together - regardless of `panEnabled`/`scaleEnabled` (those two flags only
+gate whether a detected gesture's effect gets *applied* to the transform,
+confirmed by the SDK's own doc comment: *"Will be called even if the
+interaction is disabled with panEnabled or scaleEnabled"*). With
+`BinderPageTurner`'s own `HorizontalDragGestureRecognizer` mounted as a
+*child* of that same `InteractiveViewer`, both recognizers watched the
+same first touch. A plain drag recognizer claims the gesture arena as
+soon as it sees sufficient horizontal movement from a single pointer -
+almost always within the brief window before a second finger lands for a
+real pinch, since two fingers essentially never touch down and begin
+moving in perfectly simultaneous, zero-skew unison. Once an arena
+resolves in the drag recognizer's favor, it's final: `InteractiveViewer`'s
+scale recognizer never got to track that first pointer, so it has no way
+to retroactively turn the gesture into a pinch once the second finger
+arrives. This is also *why* AC11/AC12 (single-finger drag-to-turn-page)
+kept working correctly throughout every previous round - the inner
+recognizer reliably won - while pinch-start was silently broken the whole
+time.
+
+### Fix
+
+Removed `BinderPageTurner`'s own `GestureDetector` entirely - there is now
+exactly one gesture recognizer in the whole subtree
+(`InteractiveViewer`'s), so there is nothing left to compete with it.
+`BinderPageTurnerState` exposes `startExternalDrag`/`updateExternalDrag`/
+`cancelExternalDrag`/`endExternalDrag` instead of owning drag detection
+itself; `CardBinderScreen` drives them directly from
+`InteractiveViewer.onInteractionStart`/`onInteractionUpdate`/
+`onInteractionEnd`, gated on `details.pointerCount == 1` and not already
+zoomed in. The moment `pointerCount` changes to 2 mid-gesture (a second
+finger joining), the in-progress page-turn is cancelled
+(`cancelExternalDrag`, snapping back to flat with no page change) and the
+same continuous gesture hands off cleanly to `InteractiveViewer`'s own
+native pinch-scale handling - no competing recognizer means no arena
+conflict means the hand-off is automatic, not something hand-coded.
+`panEnabled` stays gated on `_zoomed` exactly as before, so
+`InteractiveViewer` never actually applies a transform for a single-finger
+page-turn gesture (nothing to visually fight the custom leaf-rotation
+animation); `scaleEnabled` stays unconditionally true so a real pinch
+always scales immediately.
+
+### Acceptance criteria
+
+31. A single-finger drag still turns pages exactly as before (unchanged
+    behavior - `startExternalDrag`/`updateExternalDrag`/`endExternalDrag`
+    are a straight extraction of the previous `_onDragStart`/`_onDragUpdate`/
+    `_onDragEnd` logic, not a rewrite of the turn math itself).
+32. A second finger joining mid-drag cancels any in-progress page-turn
+    (snaps back to flat, no page change) rather than completing it or
+    leaving it stuck mid-turn.
+33. There is exactly one gesture recognizer in the binder's widget subtree
+    once zoom and page-turn are both considered - confirmed by code
+    inspection (no second `GestureDetector`/`RawGestureDetector` added
+    anywhere in `binder_page_turner.dart` or `card_binder_screen.dart`),
+    not just by one of them happening to currently work.
+
+### Traceability
+
+| AC | Evidence |
+|---|---|
+| 31 | `test/widgets/binder/card_binder_screen_test.dart` - "AC11: tapping the next-page control turns exactly one page" (tap-driven path, unchanged); the drag path itself has no automated test, same pre-existing gap noted in "What was left out" below - not newly introduced here |
+| 32 | Code review of `cancelExternalDrag`/`_onInteractionUpdate`'s `pointerCount != 1` branch - no automated test (same reason as AC31: a real multi-touch gesture isn't simulable by this suite's widget-test tooling) |
+| 33 | Code review - `grep -n "GestureDetector\|RawGestureDetector" lib/widgets/binder/binder_page_turner.dart lib/screens/card_binder_screen.dart` shows only `InteractiveViewer`'s own, none hand-added |
+
+**Live correction after this was shipped:** pinch-to-zoom does now actually
+start (confirming the architectural fix above was correct) - the user's
+immediate follow-up was about where you pinch, not whether it works (see
+"Eighth round" below).
+
+## Seventh round: pre-existing caught cards never got a display card
+
+Status: **Done**, live-verified on the physical phone - a profile with
+many legacy caught cards (from before "Fourth round" existed) went from
+"every pocket is a dimmed sprite" to real card art, confirmed live.
+
+**Reported, live on the phone, after the Fifth-round backfill finally
+surfaced real ownership data for a long-lived profile:** "i still don't
+see any of the cards" - every newly-revealed owned pocket was the dimmed
+owned-indicator sprite, never actual card art.
+
+**Root cause:** "Fourth round" made catching a Pokemon's *first* card
+auto-select it as the display card - but only for catches made *after*
+that fix shipped. Every card this specific profile had ever caught
+predates it, so none of them have a `BinderCardSelection` row at all - the
+dimmed-sprite `OwnedPocket` state is *exactly* what the existing design
+specifies for "owned, nothing selected" (confirmed correct and desired by
+the user earlier - "if i haven't selected a card then the generic sprite
+is fine"). The gap is that nothing ever retroactively applies the same
+"first catch becomes the display" idea to a profile's pre-existing
+backlog - Fourth round only ever runs going forward, one catch at a time.
+
+### Fix
+
+`CardBinderProvider.load()` now runs a one-time catch-up pass after
+assembling owned/cached/selected state: any Pokemon that's owned (and has
+at least one cached card, which the Fifth-round backfill just ensured)
+but has no selection row at all gets its highest-priced owned card
+selected and persisted immediately - the same deterministic tie-break as
+AC25's design (`highestPricedOwnedCard`, extracted from
+`computeBinderPocketView`'s private helper into a public, directly-testable
+function in `utils/binder/binder_pocket.dart`, backed by the `
+estimatedCardPriceValue` numeric comparator added to `utils/tcg_price_util.dart`).
+Persisted, not just computed for this render, so a Pokemon that's been
+caught up behaves exactly like any other selection afterward - changeable
+through the cycle picker, never silently re-picked on a later load. A
+Pokemon that already has *any* selection row, even one pointing at a card
+no longer owned, is left untouched - the catch-up only fills in Pokemon
+with no selection at all, never overrides an existing (if currently
+invalid) one.
+
+### Acceptance criteria
+
+34. A Pokemon with owned, cached cards but no selection ever recorded gets
+    one auto-selected and persisted the next time the binder loads.
+35. When several of a Pokemon's owned cards have never been selected
+    between them, the catch-up picks the highest-priced one, same
+    deterministic tie-break as AC25.
+36. A Pokemon that already has an explicit selection (even one that no
+    longer resolves to an owned card) is never touched by the catch-up.
+
+### Traceability
+
+| AC | Test |
+|---|---|
+| 34 | `test/services/card_binder_provider_test.dart` - "AC25/AC28 (Seventh round catch-up): an owned card with no selection ever recorded gets auto-selected and persisted during load" |
+| 35 | `test/services/card_binder_provider_test.dart` - "the catch-up picks the highest-priced of several owned-but-never-selected cards for the same Pokemon"; unit-level in `test/utils/binder/binder_pocket_test.dart`'s `highestPricedOwnedCard` group |
+| 36 | `test/services/card_binder_provider_test.dart` - "AC6: ... also confirms the Seventh-round catch-up never overrides an existing (even now-invalid) selection row" |
+
+**A second, independent bug found investigating this, live on the phone:**
+the backfill's own fetch path (`TcgService.getCard`, singular) had never
+actually worked - `PokemonTcgApiService.getCard` returned the raw decoded
+JSON instead of a parsed `TcgCard`, a `return jsonDecode(response.body)`
+silently violating its own `Future<TcgCard?>` return type. Nothing had
+ever called this method in production before the Fifth-round backfill,
+and it had zero test coverage, so this had been broken since it was
+written - confirmed via live logcat:
+`Error fetching card: type '_Map<String, dynamic>' is not a subtype of
+type 'FutureOr<TcgCard?>'`, once per missing card, silently swallowed by
+the backfill's own per-card try/catch (by design, so one bad id doesn't
+block the rest - see Fifth round AC29) - which is exactly why the backfill
+appeared to do nothing at all. Fixed to unwrap the single-card response's
+`"data"` envelope and call `TcgCard.fromJson`, same as the list endpoint
+already does; also given the same transient-failure retry
+(`_getWithRetry`) as the list endpoint, since live logs showed it hitting
+the identical upstream 500/502 flakiness. New test coverage in
+`test/services/pokemon_tcg_api_service_test.dart`'s `getCard` group (none
+existed before).
+
+**A known, accepted trade-off, not fixed here:** both the Fifth-round
+backfill and this round's catch-up run synchronously inside
+`CardBinderProvider.load()`, which `CardBinderScreen` blocks its entire
+body behind (`!binder.isLoaded` shows only a spinner). For a profile with
+many legacy gaps - confirmed live, this one had dozens - the very first
+load after upgrading can take tens of seconds, each missing card fighting
+through the same upstream 500/502 flakiness noted throughout this doc.
+Reported live as "the card binder page just spins," then self-resolved
+("it just took a while"). Left as a spinner rather than re-architected
+into a progressive/background load, given this is strictly a one-time
+cost per profile (every subsequent load is fast, per Fifth round AC30) -
+flagged here rather than silently accepted, in case a profile with an
+especially large backlog makes this worth revisiting.
+
+## Eighth round: zoom magnified the content, not the binder itself
+
+Status: **Done**, reported fixed by the user immediately after pinch-zoom
+itself was confirmed working ("oh pinch to zoom does work").
+
+**Reported:** "it won't increase the size of the bu[i]nder just zoom
+what's inside it we need to fix that." Correct, and exactly how
+`InteractiveViewer` is normally used (a fixed-size viewport, content
+magnifies within it, like a map) - but not what was wanted here: the
+binder *object itself* should grow to use more of the available screen
+once zoomed in, not stay pinned at its resting size while the same
+on-screen window just shows a magnified crop of it.
+
+### Fix
+
+The `ConstrainedBox(maxWidth: 820)` wrapping the binder (the POC's bounded
+resting size, from "Third round") is now an `AnimatedContainer` whose
+`maxWidth` animates to `double.infinity` while `_zoomed` is true, capped
+only by whatever width the surrounding `Expanded` actually has. The
+`AspectRatio(16/10)` inside it is untouched, so growing the outer bound
+only ever produces a *correctly proportioned*, larger binder - never a
+stretched or differently-shaped one. Shrinks back to the 820-wide resting
+size automatically once scale returns to 1.0 (`_zoomed` flips false).
+
+### Acceptance criteria
+
+37. Pinching in grows the binder object's own on-screen footprint (not
+    just the content rendered within a fixed-size window), up to the
+    available space, while remaining correctly proportioned (16:10) at
+    every size.
+38. Returning to 1.0x scale shrinks the binder back to its normal bounded
+    resting size.
+
+### Traceability
+
+| AC | Evidence |
+|---|---|
+| 37 | Code review - `AnimatedContainer`'s `constraints` keyed off `_zoomed`, `AspectRatio` unconditionally wrapping it; not yet re-confirmed with a fresh screenshot (phone was detached mid-session - re-verify on `emulator-5554` before closing this round) |
+| 38 | Same as above - the binding is symmetric (`_zoomed` drives both directions of the `AnimatedContainer`), not independently verified live yet |
+
+### Investigated live, turned out not to be a bug: "Drowzee shows caught but not in the binder"
+
+Reported live on the phone, with a concrete example (dex #096, Drowzee).
+Confirmed directly, two ways: the binder pocket's own accessibility label
+read "drowzee: none owned, tap to add a card" (the exact string
+`BinderPocketWidget._semanticLabel` emits for `EmptyPocket`), and opening
+it into the full card-browse grid showed every real Drowzee card from the
+API with no caught (blue-bordered) highlight on any of them. Logcat for
+the same session showed zero `getCard` failures and zero persistent
+(all-5-retries-exhausted) fetch failures, ruling out a partial backfill
+failure as the cause.
+
+**Conclusion:** not a bug. A Pokemon's Pokédex "caught" status
+(`Pokemon`/`UserData`, toggled directly from the pokeball icon on the list
+or details screen) and TCG-card ownership (`CaughtTcgCard`, the binder's
+only data source - see "Pocket model" above) are two independent signals.
+Drowzee was caught some way that never caught a TCG card for it (most
+likely the pokeball toggle directly), so the binder correctly has nothing
+to show - the same "+ " state as any other Pokemon with zero owned cards.
+Catching a card always mirrors onto the Pokemon (`card_caught_toggle.dart`)
+but not the other way around, and was never meant to: the binder is a
+TCG-card collection view, not a second rendering of general Pokédex catch
+status.
+
+## Ninth round: caught-but-cardless Pokemon should still show *something*
+
+Status: **Done**, verification pending on `emulator-5554` (phone was
+mid-disconnect when this was built and tested).
+
+**Reported**, immediately after the Drowzee investigation above confirmed
+the design distinction was working as built: "i haven't caught a drowzee
+card but i have selected drowzee it should still show the sprite since no
+card was caught." This reverses the conclusion above, deliberately: the
+distinction between "Pokédex caught" and "TCG-card owned" is real and
+correctly computed, but the user wants the binder's "+" to mean "you
+don't have this Pokemon at all," not narrowly "you have no *card* for
+it" - a Pokemon caught any other way should still show the owned-indicator
+sprite.
+
+### Fix
+
+`computeBinderPocketView` takes a new required `pokemonCaught` parameter
+(the Pokemon's own `Pokemon.isCaught`, independent of any TCG card) and
+falls into the `OwnedPocket` sprite state whenever either
+`ownedCardIdsForPokemon` is non-empty *or* `pokemonCaught` is true - "+"
+now exclusively means neither is true. `CardBinderProvider.pocketFor`
+takes the same new required parameter (this provider deliberately doesn't
+hold the Pokemon list itself, so the caller supplies it);
+`CardBinderScreen` passes `pokemon.isCaught` from the `PokemonApiProvider`
+data it already reads.
+
+**A knock-on fix in the same change:** `_onPocketTapped`'s decision to
+open the cycle picker vs. jump straight to the browse grid (AC8) used to
+be `view is EmptyPocket` - with `OwnedPocket` now reachable for a Pokemon
+with zero real owned cards, that check would have sent a caught-but-
+cardless Pokemon into the cycle picker, which has nothing to cycle
+through (a dead end - "No owned cards yet" with every control disabled).
+Changed to ask the real question directly -
+`binder.ownedCardsFor(pokemonId).isEmpty` - independent of which pocket
+state is currently showing.
+
+### Acceptance criteria
+
+39. A Pokemon that's caught (Pokédex-level) but owns no TCG card at all
+    shows the owned-indicator sprite, not the "+" state.
+40. Tapping that pocket still opens straight into the browse grid (same
+    as a genuinely empty pocket), not the cycle picker, since there's
+    still nothing to cycle through.
+41. A Pokemon that's both caught and owns a TCG card is unaffected -
+    `pokemonCaught` only matters as a fallback when there's no card-based
+    signal at all.
+
+### Traceability
+
+| AC | Test |
+|---|---|
+| 39 | `test/utils/binder/binder_pocket_test.dart` - "AC39 (Ninth round): a caught Pokemon with no TCG card owned at all shows the owned-indicator sprite..." + "...an uncaught Pokemon with no TCG card owned shows the + state..."; provider-level in `test/services/card_binder_provider_test.dart` - "AC39 (Ninth round): a caught Pokemon with no TCG card at all shows the owned-indicator state..." |
+| 40 | Code review - `_onPocketTapped`'s `startInBrowse` now reads `binder.ownedCardsFor(pokemonId).isEmpty` directly; no automated test added (same widget-test-harness gap already noted for the drag gesture elsewhere in this doc) |
+| 41 | `test/services/card_binder_provider_test.dart` - "AC39: an explicit selection still wins over pokemonCaught, same as it already wins over owned-but-uncached" |
+
+**Live-verified on `emulator-5554`:** caught Bulbasaur directly via the
+Pokedex list's pokeball (not through any TCG card, confirmed zero cards
+owned) - the binder pocket's own accessibility label read "bulbasaur:
+owned, none chosen to display" and showed the dimmed sprite, not "+"
+(`caught-cardless-pokemon-shows-sprite.png`). Tapped it and confirmed it
+opened straight into "All cards - tap to catch" (the browse grid), not
+the cycle picker (`caught-cardless-pokemon-opens-browse.png`) - AC40.
+
 ## Open questions
 
 - Exact page size (9/page, 3x3, assumed) - confirm it actually reads well at
@@ -809,6 +1227,19 @@ All screenshots: `docs/features/card-binder/screenshots/`.
   those pieces existed in this tree.
 - **Paper-bend polish** (scaleX foreshortening, skewY, curling corner radius)
   - explicitly deferred by the design doc itself; not attempted here either.
+- **Feature TODO, requested live, not yet built:** the spine/pages should
+  visually read as a *stack* whose thickness differs left vs. right
+  depending on how many pages are actually on that side - near the front
+  of the binder, the left stack is thin and the right stack is thick (most
+  pages still to come), and that inverts near the back, the same way a
+  real book's two halves do. Currently every page edge renders at a fixed
+  thickness regardless of `rightPageIndex`/`pageCount`, so the binder
+  never visually signals "how far through" it is the way a physical one
+  does. Likely approach: a thin stacked-edge visual (a handful of offset
+  page-edge lines, like a book viewed from the side) on the spine side of
+  each half, with line count/offset scaled from `rightPageIndex` (left
+  stack) and `pageCount - rightPageIndex` (right stack) - not designed or
+  built yet, flagging the idea and the rough mechanism only.
 - **Page size confirmation at phone width** - see Open questions above.
 - **Drag-gesture automated coverage for the page turn** - the drag handler
   (`BinderPageTurnerState._onDragUpdate`/`_onDragEnd`) is implemented exactly

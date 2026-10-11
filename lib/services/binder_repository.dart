@@ -22,6 +22,10 @@ abstract class BinderRepository {
 
   /// Upserts by (profileId, pokemonId).
   Future<void> setSelection(int profileId, int pokemonId, String cardId);
+
+  /// See [TcgCardRepository.backfillUncachedCaughtCards] - "Fifth round" in
+  /// docs/features/card-binder.md.
+  Future<void> backfillUncachedCaughtCards(int profileId);
 }
 
 /// Adapter from [BinderRepository] onto [LocalService] (for the binder
@@ -54,4 +58,8 @@ class LocalServiceBinderRepository implements BinderRepository {
         pokemonId: pokemonId,
         selectedCardId: cardId,
       ));
+
+  @override
+  Future<void> backfillUncachedCaughtCards(int profileId) =>
+      _tcgCardRepository.backfillUncachedCaughtCards(profileId);
 }

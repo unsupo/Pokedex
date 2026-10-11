@@ -21,6 +21,31 @@ class _UnusedTcgService implements TcgService {
       throw UnimplementedError('not exercised in these tests');
 }
 
+/// Serves [cardsById] from [getCard]; any id in [failingIds] throws instead,
+/// simulating a bad/retired card id without aborting the rest of a backfill.
+/// Tracks every id it was asked for, so a test can assert fetches actually
+/// happened (or didn't, when nothing should need fetching).
+class _FakeGetCardService implements TcgService {
+  final Map<String, TcgCard> cardsById;
+  final Set<String> failingIds;
+  final List<String> requestedIds = [];
+
+  _FakeGetCardService(this.cardsById, {this.failingIds = const {}});
+
+  @override
+  Future<TcgCard?> getCard(String cardId) async {
+    requestedIds.add(cardId);
+    if (failingIds.contains(cardId)) {
+      throw Exception('simulated fetch failure for $cardId');
+    }
+    return cardsById[cardId];
+  }
+
+  @override
+  Future<List<TcgCard>> getCardsByNationalDexId(int nationalDexId) =>
+      throw UnimplementedError('not exercised in these tests');
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -46,7 +71,8 @@ void main() {
   group('TcgCardRepository.cacheCards', () {
     test('write-through caches full card data for later lookup', () async {
       await repository.cacheCards([
-        TcgCard(id: 'repo-cache-1', name: 'Charizard', nationalPokedexNumbers: [6]),
+        TcgCard(
+            id: 'repo-cache-1', name: 'Charizard', nationalPokedexNumbers: [6]),
       ]);
 
       final cached =
@@ -60,8 +86,12 @@ void main() {
         () async {
       final profile = await newProfile('repo-join');
       await repository.cacheCards([
-        TcgCard(id: 'repo-join-1', name: 'Pikachu V', nationalPokedexNumbers: [25]),
-        TcgCard(id: 'repo-join-2', name: 'Pikachu VMAX', nationalPokedexNumbers: [25]),
+        TcgCard(
+            id: 'repo-join-1', name: 'Pikachu V', nationalPokedexNumbers: [25]),
+        TcgCard(
+            id: 'repo-join-2',
+            name: 'Pikachu VMAX',
+            nationalPokedexNumbers: [25]),
       ]);
       await repository.saveCaughtStatus(profile, 'repo-join-1', true);
 
@@ -76,7 +106,8 @@ void main() {
         () async {
       final profile = await newProfile('repo-join-uncaught');
       await repository.cacheCards([
-        TcgCard(id: 'repo-join-3', name: 'Bulbasaur', nationalPokedexNumbers: [1]),
+        TcgCard(
+            id: 'repo-join-3', name: 'Bulbasaur', nationalPokedexNumbers: [1]),
       ]);
       await repository.saveCaughtStatus(profile, 'repo-join-3', true);
       await repository.saveCaughtStatus(profile, 'repo-join-3', false);
@@ -86,7 +117,8 @@ void main() {
       expect(caught, isEmpty);
     });
 
-    test('a caught card id with no cached TcgCard data is simply omitted '
+    test(
+        'a caught card id with no cached TcgCard data is simply omitted '
         '(the binder treats this id as still-owned via the raw caught set, '
         'not through this joined list)', () async {
       final profile = await newProfile('repo-join-nodata');
@@ -97,17 +129,95 @@ void main() {
       expect(caught, isEmpty);
     });
 
-    test('AC14: only the given profile\'s caught cards are returned',
-        () async {
+    test('AC14: only the given profile\'s caught cards are returned', () async {
       final profileA = await newProfile('repo-join-iso-a');
       final profileB = await newProfile('repo-join-iso-b');
       await repository.cacheCards([
-        TcgCard(id: 'repo-join-iso', name: 'Squirtle', nationalPokedexNumbers: [7]),
+        TcgCard(
+            id: 'repo-join-iso', name: 'Squirtle', nationalPokedexNumbers: [7]),
       ]);
       await repository.saveCaughtStatus(profileA, 'repo-join-iso', true);
 
       expect(await repository.getCaughtCardsForProfile(profileB), isEmpty);
       expect(await repository.getCaughtCardsForProfile(profileA), isNotEmpty);
+    });
+  });
+
+  group('TcgCardRepository.backfillUncachedCaughtCards', () {
+    // Each test builds its own repository (a fresh _FakeGetCardService, same
+    // shared Isar localService) rather than reusing the suite-wide
+    // `repository` above, which is deliberately wired to a service that
+    // throws on getCard - these tests need one that can actually serve it.
+
+    test(
+        'AC28: fetches and caches display data for a caught card with none yet',
+        () async {
+      final profile = await newProfile('backfill-basic');
+      final service = _FakeGetCardService({
+        'backfill-1': TcgCard(
+            id: 'backfill-1', name: 'Mewtwo', nationalPokedexNumbers: [150]),
+      });
+      final repo = DefaultTcgCardRepository(service, localService);
+      await repo.saveCaughtStatus(profile, 'backfill-1', true);
+      // Not cached yet - getCaughtCardsForProfile would omit it entirely.
+      expect(await repo.getCaughtCardsForProfile(profile), isEmpty);
+
+      await repo.backfillUncachedCaughtCards(profile);
+
+      final caught = await repo.getCaughtCardsForProfile(profile);
+      expect(caught.single.id, 'backfill-1');
+      expect(caught.single.name, 'Mewtwo');
+      expect(caught.single.isCaught, isTrue);
+    });
+
+    test(
+        'AC29: one card failing to fetch does not prevent the rest of the '
+        'backfill from completing', () async {
+      final profile = await newProfile('backfill-partial-failure');
+      final service = _FakeGetCardService(
+        {
+          'backfill-ok': TcgCard(
+              id: 'backfill-ok', name: 'Mew', nationalPokedexNumbers: [151]),
+        },
+        failingIds: {'backfill-bad'},
+      );
+      final repo = DefaultTcgCardRepository(service, localService);
+      await repo.saveCaughtStatus(profile, 'backfill-ok', true);
+      await repo.saveCaughtStatus(profile, 'backfill-bad', true);
+
+      await repo.backfillUncachedCaughtCards(profile);
+
+      final caught = await repo.getCaughtCardsForProfile(profile);
+      expect(caught.map((c) => c.id), ['backfill-ok']);
+    });
+
+    test(
+        'AC30: does nothing when every caught card is already cached - no '
+        'getCard calls at all', () async {
+      final profile = await newProfile('backfill-nothing-missing');
+      final service = _FakeGetCardService({});
+      final repo = DefaultTcgCardRepository(service, localService);
+      await repo.cacheCards([
+        TcgCard(
+            id: 'backfill-cached',
+            name: 'Lugia',
+            nationalPokedexNumbers: [249]),
+      ]);
+      await repo.saveCaughtStatus(profile, 'backfill-cached', true);
+
+      await repo.backfillUncachedCaughtCards(profile);
+
+      expect(service.requestedIds, isEmpty);
+    });
+
+    test('does nothing for a profile with nothing caught at all', () async {
+      final profile = await newProfile('backfill-nothing-caught');
+      final service = _FakeGetCardService({});
+      final repo = DefaultTcgCardRepository(service, localService);
+
+      await repo.backfillUncachedCaughtCards(profile);
+
+      expect(service.requestedIds, isEmpty);
     });
   });
 }

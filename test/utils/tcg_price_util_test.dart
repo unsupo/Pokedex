@@ -29,18 +29,21 @@ void main() {
       final lowOnly = cardWith(tcgplayer: Tcgplayer(prices: PriceData(low: 3)));
       expect(estimatedCardPrice(lowOnly), r'$3.00');
 
-      final highOnly = cardWith(tcgplayer: Tcgplayer(prices: PriceData(high: 40)));
+      final highOnly =
+          cardWith(tcgplayer: Tcgplayer(prices: PriceData(high: 40)));
       expect(estimatedCardPrice(highOnly), r'$40.00');
     });
 
-    test('falls back to Cardmarket trend price (EUR) when TCGPlayer has none', () {
+    test('falls back to Cardmarket trend price (EUR) when TCGPlayer has none',
+        () {
       final card = cardWith(
         cardmarket: CardMarket(prices: PriceData(trendPrice: 7.25)),
       );
       expect(estimatedCardPrice(card), '€7.25');
     });
 
-    test('falls back to Cardmarket average sell price when trend is missing', () {
+    test('falls back to Cardmarket average sell price when trend is missing',
+        () {
       final card = cardWith(
         cardmarket: CardMarket(prices: PriceData(averageSellPrice: 4)),
       );
@@ -58,6 +61,34 @@ void main() {
     test('a present but entirely-null prices object counts as no data', () {
       final card = cardWith(tcgplayer: Tcgplayer(prices: PriceData()));
       expect(estimatedCardPrice(card), isNull);
+    });
+  });
+
+  group('estimatedCardPriceValue', () {
+    test('returns null when the card has no pricing data at all', () {
+      expect(estimatedCardPriceValue(cardWith()), isNull);
+    });
+
+    test('returns the raw TCGPlayer market number, not a formatted string', () {
+      final card = cardWith(
+        tcgplayer: Tcgplayer(prices: PriceData(market: 12.5)),
+      );
+      expect(estimatedCardPriceValue(card), 12.5);
+    });
+
+    test('falls back to the raw Cardmarket number when TCGPlayer has none', () {
+      final card = cardWith(
+        cardmarket: CardMarket(prices: PriceData(trendPrice: 7.25)),
+      );
+      expect(estimatedCardPriceValue(card), 7.25);
+    });
+
+    test('same TCGPlayer-over-Cardmarket preference as estimatedCardPrice', () {
+      final card = cardWith(
+        tcgplayer: Tcgplayer(prices: PriceData(market: 9)),
+        cardmarket: CardMarket(prices: PriceData(trendPrice: 500)),
+      );
+      expect(estimatedCardPriceValue(card), 9);
     });
   });
 }

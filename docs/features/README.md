@@ -8,7 +8,7 @@ were once two.
 
 | Doc | Status | Summary |
 |---|---|---|
-| [card-binder.md](card-binder.md) | Done - 4th round: catching a card now auto-displays it; 3rd round fixed page-turn blanking bug, added zoom panning, pocket ID labels, search; live-verified on emulator | 3-ring binder, one pocket per Pokemon showing a profile-selected owned card, cycle/add modal |
+| [card-binder.md](card-binder.md) | In progress - 9th round (caught-but-cardless Pokemon shows owned sprite) live on emulator; 8th round (binder grows while zoomed) built, pinch itself unverifiable via automation; 7th/6th rounds live on phone; earlier rounds fixed page-turn blanking, zoom panning, labels, search, cache gaps | 3-ring binder, one pocket per Pokemon showing a profile-selected owned card, cycle/add modal |
 | [tcg-card-json-parsing-regression.md](tcg-card-json-parsing-regression.md) | Done - fixed and live-verified on emulator | Regression: `TcgCard.isarId` going non-final broke all real TCG card JSON parsing |
 | [home-recenter.md](home-recenter.md) | Implemented (built by a parallel agent; merged and verified) | Home (and back) re-centers the Pokedex list on the last-viewed Pokemon |
 | [list-sorting.md](list-sorting.md) | Done (built by a parallel agent; merged and verified) | Sort control: name/dex, ascending/descending |

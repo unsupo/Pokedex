@@ -17,6 +17,15 @@ abstract class TcgCardRepository {
   /// in and [TcgCard.isCaught] set to true. A caught card id with no cached
   /// data yet (see the design doc) is simply omitted from this list.
   Future<List<TcgCard>> getCaughtCardsForProfile(int profileId);
+
+  /// Fetches and caches display data for every caught card this profile
+  /// owns that doesn't have any yet - see "Fifth round" in
+  /// docs/features/card-binder.md. Without this, a caught card whose
+  /// Pokemon's own Cards tab (the only other place [cacheCards] runs) is
+  /// never revisited stays permanently invisible to the binder, not just
+  /// imageless - [getCaughtCardsForProfile] joins against the cache, so an
+  /// uncached caught card doesn't register as owned at all.
+  Future<void> backfillUncachedCaughtCards(int profileId);
 }
 
 /// Default implementation of [TcgCardRepository] that coordinates fetching from
@@ -32,7 +41,8 @@ class DefaultTcgCardRepository implements TcgCardRepository {
       _tcgService.getCardsByNationalDexId(nationalDexId);
 
   @override
-  Future<void> saveCaughtStatus(int profileId, String cardId, bool isCaught) async {
+  Future<void> saveCaughtStatus(
+      int profileId, String cardId, bool isCaught) async {
     await _localService.saveCaughtTcgCard(
       CaughtTcgCard(profileId: profileId, cardId: cardId, isCaught: isCaught),
     );
@@ -54,7 +64,8 @@ class DefaultTcgCardRepository implements TcgCardRepository {
 
   @override
   Future<List<TcgCard>> getCaughtCardsForProfile(int profileId) async {
-    final caughtRows = await _localService.getCaughtTcgCardsForProfile(profileId);
+    final caughtRows =
+        await _localService.getCaughtTcgCardsForProfile(profileId);
     final caughtIds = caughtRows
         .where((row) => row.isCaught)
         .map((row) => row.cardId)
@@ -66,5 +77,40 @@ class DefaultTcgCardRepository implements TcgCardRepository {
       card.isCaught = true;
     }
     return cards;
+  }
+
+  @override
+  Future<void> backfillUncachedCaughtCards(int profileId) async {
+    final caughtRows =
+        await _localService.getCaughtTcgCardsForProfile(profileId);
+    final caughtIds = caughtRows
+        .where((row) => row.isCaught)
+        .map((row) => row.cardId)
+        .toSet();
+    if (caughtIds.isEmpty) return;
+
+    final cachedIds =
+        (await _localService.getCachedTcgCardsByIds(caughtIds.toList()))
+            .map((card) => card.id)
+            .whereType<String>()
+            .toSet();
+    final missingIds = caughtIds.difference(cachedIds);
+    if (missingIds.isEmpty) return;
+
+    // Each id fetched independently and failures tolerated individually -
+    // one bad/retired card id (a 404, a flaky response) must not block the
+    // rest of an otherwise-healthy backfill. See "Fifth round" in
+    // docs/features/card-binder.md.
+    final fetched = await Future.wait(missingIds.map((id) async {
+      try {
+        return await _tcgService.getCard(id);
+      } catch (_) {
+        return null;
+      }
+    }));
+    final toCache = fetched.whereType<TcgCard>().toList();
+    if (toCache.isNotEmpty) {
+      await cacheCards(toCache);
+    }
   }
 }

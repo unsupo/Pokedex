@@ -7,7 +7,6 @@ import '../models/pokeapi/pokemon.dart';
 import '../services/card_binder_provider.dart';
 import '../services/pokemon_api_provider.dart';
 import '../utils/binder/binder_layout.dart';
-import '../utils/binder/binder_pocket.dart';
 import '../widgets/binder/binder_page_grid.dart';
 import '../widgets/binder/binder_page_turner.dart';
 import '../widgets/binder/binder_pocket_widget.dart';
@@ -35,14 +34,21 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
   bool _initialized = false;
   final GlobalKey<BinderPageTurnerState> _turnerKey = GlobalKey();
 
-  // Zoom/pan (AC21): `InteractiveViewer`'s own one-finger pan recognizer
-  // and `BinderPageTurner`'s drag-to-turn-page recognizer both want a
-  // single-finger horizontal drag, so only one can be active at a time.
-  // Panning only matters once zoomed in; page-turning only matters at
-  // rest - `_zoomed` picks which one is live.
+  // Zoom/pan (AC21) and page-turn-by-drag (AC31) share the same
+  // single-finger gesture, both driven through this one
+  // `InteractiveViewer`'s own onInteraction* callbacks rather than a
+  // second, competing `GestureDetector` inside `BinderPageTurner` - see
+  // "Sixth round" in docs/features/card-binder.md for why a second
+  // recognizer there meant pinch-to-zoom could never actually start.
   final TransformationController _transformController =
       TransformationController();
   bool _zoomed = false;
+
+  /// True for the lifetime of a single-finger interaction that started
+  /// while not zoomed in - i.e. one we're driving as a page-turn attempt.
+  /// Cleared the moment a second pointer joins (handing off to native
+  /// pinch-zoom) or the interaction ends.
+  bool _turningByDrag = false;
 
   // Search (AC23): a toggled AppBar search field that jumps the binder to
   // a matching Pokemon's page and briefly highlights its pocket, rather
@@ -81,6 +87,40 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
     final scale = _transformController.value.getMaxScaleOnAxis();
     final zoomed = scale > 1.01;
     if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
+  }
+
+  // AC31: driving the page-turn from InteractiveViewer's own gesture
+  // stream (see the comment on BinderPageTurnerState.startExternalDrag)
+  // instead of a second competing GestureDetector. `panEnabled: _zoomed`
+  // below means InteractiveViewer never actually applies a transform for
+  // these callbacks while not zoomed, so nothing visually fights the
+  // custom page-turn leaf animation; `scaleEnabled: true` always means a
+  // real pinch (pointerCount reaching 2) still scales natively throughout.
+
+  void _onInteractionStart(ScaleStartDetails details) {
+    if (details.pointerCount != 1 || _zoomed) return;
+    _turningByDrag = true;
+    _turnerKey.currentState?.startExternalDrag(details.focalPoint.dx);
+  }
+
+  void _onInteractionUpdate(ScaleUpdateDetails details) {
+    if (!_turningByDrag) return;
+    if (details.pointerCount != 1) {
+      // A second finger joined - this is becoming a pinch, not a page
+      // turn. Hand off cleanly: snap the half-started turn back flat and
+      // let InteractiveViewer's own scaling take over for the rest of
+      // this same gesture.
+      _turningByDrag = false;
+      _turnerKey.currentState?.cancelExternalDrag();
+      return;
+    }
+    _turnerKey.currentState?.updateExternalDrag(details.focalPoint.dx);
+  }
+
+  void _onInteractionEnd(ScaleEndDetails details) {
+    if (!_turningByDrag) return;
+    _turningByDrag = false;
+    _turnerKey.currentState?.endExternalDrag();
   }
 
   void _toggleSearch() {
@@ -149,8 +189,13 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
 
   Future<void> _onPocketTapped(int pokemonId) async {
     final binder = context.read<CardBinderProvider>();
-    final view = binder.pocketFor(pokemonId);
-    final startInBrowse = view is EmptyPocket;
+    // Whether to open straight into the browse grid (AC8) now has to be
+    // asked directly - "is there anything to cycle through" - rather than
+    // inferred from the pocket's own display state: since "Ninth round"
+    // (see docs/features/card-binder.md), a Pokémon caught with no TCG
+    // card at all also shows the OwnedPocket sprite, but still has nothing
+    // to cycle through, same as EmptyPocket always did.
+    final startInBrowse = binder.ownedCardsFor(pokemonId).isEmpty;
     await showCardPickerModal(
       context,
       pokemonId: pokemonId,
@@ -207,8 +252,24 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
                 children: [
                   Expanded(
                     child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 820),
+                      // AC21 originally only let *content* magnify within a
+                      // fixed-size viewport (like most InteractiveViewer
+                      // uses) - reported live as "it won't increase the
+                      // size of the binder, just zoom what's inside it."
+                      // The object itself growing while zoomed, not just
+                      // its content, is what was actually wanted - see
+                      // "Eighth round" in docs/features/card-binder.md.
+                      // maxWidth animates from the POC's bounded resting
+                      // size (820, see below) up to however much width the
+                      // surrounding Expanded actually has once zoomed in;
+                      // AspectRatio still enforces 16/10 regardless, so the
+                      // binder only ever grows as a correctly-proportioned
+                      // object, never stretches into a different shape.
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOut,
+                        constraints: BoxConstraints(
+                            maxWidth: _zoomed ? double.infinity : 820),
                         // The POC's `.binder-stage` is `aspect-ratio: 16/10`
                         // - a bounded object, not a panel that stretches to
                         // fill whatever height it's given. Filling the full
@@ -218,28 +279,30 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
                         // void below.
                         child: AspectRatio(
                           aspectRatio: 16 / 10,
-                          // Pinch-to-zoom: panning is enabled only once
-                          // actually zoomed in (see `_onTransformChanged`),
-                          // so its one-finger pan recognizer only competes
-                          // with BinderPageTurner's drag-to-turn-page
-                          // recognizer when the latter is itself disabled
-                          // (`dragEnabled: !_zoomed` below) - see AC21 in
-                          // "Third round" of docs/features/card-binder.md.
-                          // A previous version disabled panning
-                          // unconditionally, so zooming in had no way to
-                          // then look around the zoomed image.
+                          // Pinch-to-zoom (AC21) and drag-to-turn-page
+                          // (AC31) both run through this single
+                          // InteractiveViewer's own gesture stream now -
+                          // see "Sixth round" in docs/features/card-binder.md.
+                          // panEnabled stays gated on `_zoomed` so
+                          // InteractiveViewer never actually applies a pan
+                          // transform while a single-finger drag is being
+                          // used to turn a page instead; scaleEnabled is
+                          // always true so a real second finger still
+                          // scales immediately.
                           child: InteractiveViewer(
                             transformationController: _transformController,
                             panEnabled: _zoomed,
                             scaleEnabled: true,
                             minScale: 1.0,
                             maxScale: 4.0,
+                            onInteractionStart: _onInteractionStart,
+                            onInteractionUpdate: _onInteractionUpdate,
+                            onInteractionEnd: _onInteractionEnd,
                             child: _BinderLeatherBase(
                               child: BinderPageTurner(
                                 key: _turnerKey,
                                 rightPageIndex: _rightPageIndex,
                                 pageCount: pageCount,
-                                dragEnabled: !_zoomed,
                                 onPageChanged: (newIndex) =>
                                     setState(() => _rightPageIndex = newIndex),
                                 spine: const BinderSpine(),
@@ -255,7 +318,8 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
                                             pokemonId == _highlightedPokemonId,
                                         child: BinderPocketWidget(
                                           pokemon: pokemon,
-                                          view: binder.pocketFor(pokemonId),
+                                          view: binder.pocketFor(pokemonId,
+                                              pokemonCaught: pokemon.isCaught),
                                           onTap: () =>
                                               _onPocketTapped(pokemonId),
                                         ),

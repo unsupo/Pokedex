@@ -166,7 +166,7 @@ void main() {
     await tester.runAsync(
         () => toggleCardCaught(context, card, 25, pokemonAlreadyCaught: false));
 
-    final view = binderProvider.pocketFor(25);
+    final view = binderProvider.pocketFor(25, pokemonCaught: false);
     expect(view, isA<SelectedPocket>());
     expect((view as SelectedPocket).card.id, 'sync-first');
   });
@@ -190,7 +190,7 @@ void main() {
       await toggleCardCaught(context, second, 25, pokemonAlreadyCaught: true);
     });
 
-    final view = binderProvider.pocketFor(25);
+    final view = binderProvider.pocketFor(25, pokemonCaught: false);
     expect(view, isA<SelectedPocket>());
     expect((view as SelectedPocket).card.id, 'sync-first',
         reason: 'the first catch is still the displayed card');

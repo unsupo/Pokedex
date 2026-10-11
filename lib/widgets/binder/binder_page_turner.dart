@@ -28,6 +28,13 @@ class BinderPageTurner extends StatefulWidget {
   final Widget Function(BuildContext context, int pageIndex) pageBuilder;
   final Widget spine;
 
+  /// Whether the horizontal drag-to-turn-page gesture is active. The caller
+  /// (`CardBinderScreen`) turns this off while the surrounding
+  /// `InteractiveViewer` is zoomed in and handling one-finger panning
+  /// instead - see "Third round" in docs/features/card-binder.md (AC21).
+  /// The tap-driven [turn] method is unaffected either way.
+  final bool dragEnabled;
+
   const BinderPageTurner({
     super.key,
     required this.rightPageIndex,
@@ -35,6 +42,7 @@ class BinderPageTurner extends StatefulWidget {
     required this.onPageChanged,
     required this.pageBuilder,
     required this.spine,
+    this.dragEnabled = true,
   });
 
   @override
@@ -119,13 +127,6 @@ class BinderPageTurnerState extends State<BinderPageTurner>
       final leftPageIndex = widget.rightPageIndex - 1;
       final t = _controller.value;
 
-      // While turning forward, the leaf (old right page) is mid-flight to
-      // the left slot, so the static left slot would otherwise show a stale
-      // page underneath it - simplest correct fix is to just not render the
-      // static slot the leaf is flying toward.
-      final hideLeftStatic = _direction > 0;
-      final hideRightStatic = _direction < 0;
-
       // The side NOT being vacated is "already showing what it will be"
       // once the turn completes - a physical binder's next page is already
       // sitting there, under the one being lifted. Found live on the
@@ -137,9 +138,24 @@ class BinderPageTurnerState extends State<BinderPageTurner>
       // `turn()`). Forward: the static right slot should pre-empt to
       // rightPageIndex+1. Backward: the static left slot should pre-empt to
       // leftPageIndex-1.
-      final staticLeftIndex = _direction < 0 ? leftPageIndex - 1 : leftPageIndex;
+      final staticLeftIndex =
+          _direction < 0 ? leftPageIndex - 1 : leftPageIndex;
       final staticRightIndex =
           _direction > 0 ? widget.rightPageIndex + 1 : widget.rightPageIndex;
+
+      // Both static slots always render their real content, full stop - a
+      // previous version additionally force-blanked whichever slot the
+      // leaf departs from/arrives at (`hideLeftStatic`/`hideRightStatic`)
+      // for the leaf's *entire* animation, not just the portion it's
+      // actually covering. Found live (see "Third round" in
+      // docs/features/card-binder.md): since the leaf only sweeps across
+      // that slot progressively as its rotation angle passes 90 degrees,
+      // blanking it outright exposed the `_BinderLeatherBase` background
+      // behind the Stack for roughly the first half of every turn, instead
+      // of the correct, unchanged page that's still sitting there until the
+      // leaf (painted after this Row, so already on top) actually lands on
+      // it. No hiding is needed at all - the leaf's own painting order
+      // already covers this slot exactly when it should.
 
       // The hinge shadow a turning leaf casts onto the page it's lifting off
       // of / settling onto - strongest when the leaf is edge-on (t=0.5),
@@ -149,80 +165,84 @@ class BinderPageTurnerState extends State<BinderPageTurner>
       // not a sheet of paper lifting off the page beneath it.
       final hingeShadow = math.sin(t * math.pi).clamp(0.0, 1.0);
 
+      final spread = Stack(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Stack(
+                  children: [
+                    _buildPage(context, staticLeftIndex),
+                    if (_direction > 0)
+                      _HingeShadow(
+                        intensity: hingeShadow,
+                        alignment: Alignment.centerRight,
+                      ),
+                  ],
+                ),
+              ),
+              widget.spine,
+              Expanded(
+                child: Stack(
+                  children: [
+                    _buildPage(context, staticRightIndex),
+                    if (_direction < 0)
+                      _HingeShadow(
+                        intensity: hingeShadow,
+                        alignment: Alignment.centerLeft,
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          // The leaf's box must sit flush against the spine on the side
+          // it's departing from - its hinge-side edge is the spine, the
+          // far edge swings through the turn. Found live (not caught by
+          // any widget test, which never asserts the rotation's geometry -
+          // see Status): this was previously anchored to the *outer*
+          // screen edge instead, which pivoted the whole turn off the
+          // side of the screen rather than at the spine in the middle.
+          if (_direction > 0)
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: _pageWidth,
+              child: _buildLeaf(
+                context,
+                pageIndex: widget.rightPageIndex,
+                angle: t * math.pi,
+                alignment: Alignment.centerLeft,
+              ),
+            ),
+          if (_direction < 0)
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: _pageWidth,
+              child: _buildLeaf(
+                context,
+                pageIndex: leftPageIndex,
+                angle: -t * math.pi,
+                alignment: Alignment.centerRight,
+              ),
+            ),
+        ],
+      );
+
+      // No gesture detector at all while drag is disabled (zoomed in, per
+      // AC21) - rather than attaching one whose handlers no-op, so the
+      // surrounding InteractiveViewer's own one-finger pan recognizer has
+      // nothing competing with it for that pointer in the gesture arena.
+      if (!widget.dragEnabled) return spread;
+
       return GestureDetector(
         onHorizontalDragStart: _onDragStart,
         onHorizontalDragUpdate: _onDragUpdate,
         onHorizontalDragEnd: _onDragEnd,
-        child: Stack(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Stack(
-                    children: [
-                      hideLeftStatic
-                          ? const SizedBox.expand()
-                          : _buildPage(context, staticLeftIndex),
-                      if (_direction > 0)
-                        _HingeShadow(
-                          intensity: hingeShadow,
-                          alignment: Alignment.centerRight,
-                        ),
-                    ],
-                  ),
-                ),
-                widget.spine,
-                Expanded(
-                  child: Stack(
-                    children: [
-                      hideRightStatic
-                          ? const SizedBox.expand()
-                          : _buildPage(context, staticRightIndex),
-                      if (_direction < 0)
-                        _HingeShadow(
-                          intensity: hingeShadow,
-                          alignment: Alignment.centerLeft,
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            // The leaf's box must sit flush against the spine on the side
-            // it's departing from - its hinge-side edge is the spine, the
-            // far edge swings through the turn. Found live (not caught by
-            // any widget test, which never asserts the rotation's geometry -
-            // see Status): this was previously anchored to the *outer*
-            // screen edge instead, which pivoted the whole turn off the
-            // side of the screen rather than at the spine in the middle.
-            if (_direction > 0)
-              Positioned(
-                right: 0,
-                top: 0,
-                bottom: 0,
-                width: _pageWidth,
-                child: _buildLeaf(
-                  context,
-                  pageIndex: widget.rightPageIndex,
-                  angle: t * math.pi,
-                  alignment: Alignment.centerLeft,
-                ),
-              ),
-            if (_direction < 0)
-              Positioned(
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: _pageWidth,
-                child: _buildLeaf(
-                  context,
-                  pageIndex: leftPageIndex,
-                  angle: -t * math.pi,
-                  alignment: Alignment.centerRight,
-                ),
-              ),
-          ],
-        ),
+        child: spread,
       );
     });
   }

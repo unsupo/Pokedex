@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/pokeapi/pokemon.dart';
 import '../services/card_binder_provider.dart';
 import '../services/pokemon_api_provider.dart';
 import '../utils/binder/binder_layout.dart';
@@ -32,6 +35,24 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
   bool _initialized = false;
   final GlobalKey<BinderPageTurnerState> _turnerKey = GlobalKey();
 
+  // Zoom/pan (AC21): `InteractiveViewer`'s own one-finger pan recognizer
+  // and `BinderPageTurner`'s drag-to-turn-page recognizer both want a
+  // single-finger horizontal drag, so only one can be active at a time.
+  // Panning only matters once zoomed in; page-turning only matters at
+  // rest - `_zoomed` picks which one is live.
+  final TransformationController _transformController =
+      TransformationController();
+  bool _zoomed = false;
+
+  // Search (AC23): a toggled AppBar search field that jumps the binder to
+  // a matching Pokemon's page and briefly highlights its pocket, rather
+  // than filtering pockets out of the fixed 3x3/page dex-order grid - see
+  // "New feature: search on the binder screen" in docs/features/card-binder.md.
+  bool _searching = false;
+  final TextEditingController _searchController = TextEditingController();
+  int? _highlightedPokemonId;
+  Timer? _highlightTimer;
+
   @override
   void initState() {
     super.initState();
@@ -44,6 +65,71 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
     // CardPickerModal's initState.
     final binder = context.read<CardBinderProvider>();
     Future.microtask(() => binder.load());
+    _transformController.addListener(_onTransformChanged);
+  }
+
+  @override
+  void dispose() {
+    _transformController.removeListener(_onTransformChanged);
+    _transformController.dispose();
+    _searchController.dispose();
+    _highlightTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onTransformChanged() {
+    final scale = _transformController.value.getMaxScaleOnAxis();
+    final zoomed = scale > 1.01;
+    if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _searching = !_searching;
+      if (!_searching) _searchController.clear();
+    });
+  }
+
+  void _onSearchSubmitted(
+      String query, List<int> sortedIds, Map<int, Pokemon> allPokemon) {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return;
+
+    // Exact dex number first, then a case-insensitive name substring match
+    // - mirrors the main list's name/number search without pulling in its
+    // full fuzzy/stage-modifier grammar, which this screen has no use for
+    // (no types/moves/abilities to search by here).
+    final asNumber = int.tryParse(trimmed);
+    int? matchId;
+    if (asNumber != null && sortedIds.contains(asNumber)) {
+      matchId = asNumber;
+    } else {
+      final lower = trimmed.toLowerCase();
+      for (final id in sortedIds) {
+        if (allPokemon[id]!.name.toLowerCase().contains(lower)) {
+          matchId = id;
+          break;
+        }
+      }
+    }
+
+    if (matchId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No Pokemon found for "$trimmed"')),
+      );
+      return;
+    }
+
+    final page = binderPageIndexForPokemonId(matchId);
+    _highlightTimer?.cancel();
+    setState(() {
+      _rightPageIndex = page == 0 ? 0 : page;
+      _highlightedPokemonId = matchId;
+      _searching = false;
+    });
+    _highlightTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _highlightedPokemonId = null);
+    });
   }
 
   void _initRightPageIndex(List<int> sortedIds) {
@@ -81,7 +167,30 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
     final binder = context.watch<CardBinderProvider>();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Card Binder')),
+      appBar: AppBar(
+        title: _searching
+            ? TextField(
+                key: const Key('binder-search-field'),
+                controller: _searchController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'Name or #...',
+                  border: InputBorder.none,
+                ),
+                textInputAction: TextInputAction.search,
+                onSubmitted: (q) =>
+                    _onSearchSubmitted(q, sortedIds, allPokemon),
+              )
+            : const Text('Card Binder'),
+        actions: [
+          IconButton(
+            key: const Key('binder-search-toggle'),
+            icon: Icon(_searching ? Icons.close : Icons.search),
+            tooltip: _searching ? 'Close search' : 'Search',
+            onPressed: _toggleSearch,
+          ),
+        ],
+      ),
       // Warm paper, not dark leather - the binder itself is a bounded
       // object (the "leather base" below) that sits ON this surface, the
       // same relationship as the approved POC (`--bg` behind a distinct,
@@ -109,19 +218,28 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
                         // void below.
                         child: AspectRatio(
                           aspectRatio: 16 / 10,
-                          // Pinch-to-zoom (requested), without a 1-finger
-                          // pan recognizer competing with the page-turn
-                          // drag gesture inside BinderPageTurner.
+                          // Pinch-to-zoom: panning is enabled only once
+                          // actually zoomed in (see `_onTransformChanged`),
+                          // so its one-finger pan recognizer only competes
+                          // with BinderPageTurner's drag-to-turn-page
+                          // recognizer when the latter is itself disabled
+                          // (`dragEnabled: !_zoomed` below) - see AC21 in
+                          // "Third round" of docs/features/card-binder.md.
+                          // A previous version disabled panning
+                          // unconditionally, so zooming in had no way to
+                          // then look around the zoomed image.
                           child: InteractiveViewer(
-                            panEnabled: false,
+                            transformationController: _transformController,
+                            panEnabled: _zoomed,
                             scaleEnabled: true,
                             minScale: 1.0,
-                            maxScale: 3.0,
+                            maxScale: 4.0,
                             child: _BinderLeatherBase(
                               child: BinderPageTurner(
                                 key: _turnerKey,
                                 rightPageIndex: _rightPageIndex,
                                 pageCount: pageCount,
+                                dragEnabled: !_zoomed,
                                 onPageChanged: (newIndex) =>
                                     setState(() => _rightPageIndex = newIndex),
                                 spine: const BinderSpine(),
@@ -132,11 +250,15 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
                                     pokemonIds: pageIds,
                                     pocketBuilder: (context, pokemonId) {
                                       final pokemon = allPokemon[pokemonId]!;
-                                      return BinderPocketWidget(
-                                        pokemon: pokemon,
-                                        view: binder.pocketFor(pokemonId),
-                                        onTap: () =>
-                                            _onPocketTapped(pokemonId),
+                                      return _HighlightedPocket(
+                                        highlighted:
+                                            pokemonId == _highlightedPokemonId,
+                                        child: BinderPocketWidget(
+                                          pokemon: pokemon,
+                                          view: binder.pocketFor(pokemonId),
+                                          onTap: () =>
+                                              _onPocketTapped(pokemonId),
+                                        ),
                                       );
                                     },
                                   );
@@ -157,6 +279,41 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+/// A brief highlight ring around the pocket a search jumped to (AC23) - an
+/// `AnimatedContainer` border rather than modifying `BinderPocketWidget`
+/// itself, since highlighting is this screen's own transient state, not a
+/// property of the pocket's data.
+class _HighlightedPocket extends StatelessWidget {
+  final bool highlighted;
+  final Widget child;
+
+  const _HighlightedPocket({required this.highlighted, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: highlighted ? const Color(0xFFE8A33D) : Colors.transparent,
+          width: 3,
+        ),
+        boxShadow: highlighted
+            ? [
+                BoxShadow(
+                  color: const Color(0xFFE8A33D).withValues(alpha: 0.6),
+                  blurRadius: 8,
+                  spreadRadius: 1,
+                ),
+              ]
+            : const [],
+      ),
+      child: child,
     );
   }
 }
@@ -223,7 +380,8 @@ class _NavigationControls extends StatelessWidget {
           buttonKey: const Key('binder-next-page'),
           tooltip: 'Next page',
           icon: Icons.chevron_right,
-          onPressed: canGoForward ? () => turnerKey.currentState?.turn(1) : null,
+          onPressed:
+              canGoForward ? () => turnerKey.currentState?.turn(1) : null,
         ),
       ],
     );

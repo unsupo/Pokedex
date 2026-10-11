@@ -1,7 +1,10 @@
 # Card binder view
 
-Status: **Done** (2026-10-10). Visual design and page-turn mechanics POC'd
-and approved in direction (see Animation); paper-bend polish deliberately
+Status: **Done** (2026-10-10) - see "Third round" below for the most recent
+work (a page-turn blanking bug, zoom panning, pocket ID labels, a new
+search feature, and an overflow bug found while live-verifying the pocket
+labels), live-verified on `emulator-5554`. Visual design and page-turn
+mechanics POC'd and approved in direction (see Animation); paper-bend polish deliberately
 deferred and still not built (unchanged from the POC). Per-pocket card
 selection (see below) added after the POC - changes the binder's layout
 unit from "one pocket per caught card" to "one pocket per Pokemon." Its one
@@ -446,6 +449,222 @@ the live emulator.
 | 19 | All screenshots taken at the emulator's actual phone resolution (1080x2400, `sdk_gphone64_arm64`), not a resized desktop window |
 | (2nd round) pivot at spine | `page-turn-hinged-at-spine.png` - taken mid-turn, the leaf's hinge edge sits flush against the rings, not the outer screen edge |
 | (2nd round) bounded/proportioned object | `binder-proportioned-bounded-object.png` - the binder is a centered, rounded, shadowed panel on a lighter page background, matching the POC's proportions, not a full-bleed stretched fill |
+
+All screenshots: `docs/features/card-binder/screenshots/`.
+
+## Third round: page-turn blanking bug, zoom panning, pocket ID, and search
+
+Status: **Done**, live-verified on `emulator-5554`. Reported in the same
+live-verification session as the second round, immediately after
+`page-turn-hinged-at-spine.png` / `binder-proportioned-bounded-object.png`
+were captured - so none of this was caught by that round's own live check,
+because none of these four issues are visible from a single static
+screenshot (three need the animation or an interaction sequence running;
+the fourth is a missing feature, not a regression). A fifth, previously
+unknown bug (overflow - see below) was found only by actually shipping the
+pocket-identity-label fix to the device, exactly the category of thing
+§4.3.1 exists to catch.
+
+### Bug: static slot blanks to bare background mid-turn
+
+**Reported:** "the pages still turn with the pivot on the right not in the
+middle" (the pivot part was already fixed in round 2 - see above) "...also
+when i turn the page right the left pages disappear and show the binder
+instead of the actual page that's on the left," and, separately, "the first
+and second page are confusingly the same (the first page is a page on the
+left but i pull it and put it on the right it's the same page as was on the
+left with the binder on the left)."
+
+**Investigated as a possible data bug first:** `binder_layout.dart`'s
+`binderPageIndexForPokemonId`/`binderPokemonIdsForPage` are simple, already
+pure functions, re-read and confirmed correct by inspection - page 0 and
+page 1 slice disjoint, correctly-ordered ranges of `sortedPokemonIds`, and
+`test/utils/binder/binder_layout_test.dart` (unchanged, still green) already
+covers this. **Ruled out** - the bug is in the animation, not the data.
+
+**Root cause, in `BinderPageTurnerState.build`:** the round-1 fix for a
+*different* static-slot bug (see "Bugs found during live verification"
+above) added `hideLeftStatic = _direction > 0` / `hideRightStatic =
+_direction < 0`, which replace the static slot the turning leaf departs
+from/arrives at with a bare `SizedBox.expand()` for the leaf's *entire*
+280ms animation - not just while the leaf is actually covering it.
+Concretely, for a forward turn, `hideLeftStatic` blanks the left slot
+completely for the whole turn. But the leaf (the old right page, hinged at
+the spine) only visually sweeps across into the left half progressively, as
+its rotation angle goes from 90 to 180 degrees - for roughly the first half
+of the turn, most of the left half is *not yet* covered by the leaf, so
+blanking the real content there exposes whatever is behind the `Stack`
+(the `_BinderLeatherBase`'s dark leather fill) instead of the correct,
+unchanged left page. That dark leather fill showing through is exactly "the
+binder" the user is describing. The mirror-image case
+(`hideRightStatic`) produces the same symptom turning backward, which is
+what the second report describes: pulling a page from left to right is
+*supposed* to move that same page over (that part is correct, physical-
+binder behavior, not a bug) - but the newly-revealed left slot
+(`leftPageIndex - 1`, correctly pre-empted by the round-1 fix) was blanked
+to bare background for most of the turn instead of being progressively
+uncovered as the leaf lifts away, which is what actually reads as "the
+binder on the left" / "confusingly the same."
+
+This blanking was never needed. The real staleness bug round 1 fixed - the
+slot the leaf *reveals* showing old content - is a wholly separate,
+already-correct mechanism (`staticLeftIndex`/`staticRightIndex`,
+pre-empted by one in the turn's direction). The slot the leaf *departs
+from* doesn't change at all until the leaf fully lands on it; it should
+just keep rendering its normal, unchanged content for the whole turn, and
+let the leaf - painted after it in the `Stack`, so already on top - cover
+it progressively as it rotates. `hideLeftStatic`/`hideRightStatic` were an
+unrelated, unnecessary second fix layered on top of the one that actually
+mattered.
+
+**Fix:** delete `hideLeftStatic`/`hideRightStatic` entirely. Both static
+slots always render (`staticLeftIndex`/`staticRightIndex`); nothing is ever
+force-blanked.
+
+### Zoom: pinch-in had nowhere to go
+
+**Reported:** "i want to be able to zoom in." `InteractiveViewer` already
+had `scaleEnabled: true`, but also `panEnabled: false` unconditionally (see
+round 2, added to keep its one-finger pan recognizer from competing with
+the page-turn drag `GestureDetector`). The effect: pinching in grew the
+image from a fixed anchor with no way to then look around the now-zoomed-in
+view - which reads as "zoom doesn't really work," not as a working zoom
+with a reasonable limitation.
+
+**Fix:** a `TransformationController` tracks the live scale. Panning is
+enabled only once the user has actually zoomed in past 1.0x, and
+`BinderPageTurner` gets a new `dragEnabled` flag that's turned off for that
+same duration, so the two one-finger-drag gestures (pan vs. page-turn)
+never compete for the same gesture arena - each only matters in the state
+where the other is disabled.
+
+### Pockets with nothing selected don't say which Pokemon they are
+
+**Reported:** "also i the cards i don't have it should have the name and
+number so i know what it is." Both no-ownership pockets (`_EmptyPocket`,
+just a "+" icon) and owned-but-unselected pockets (`_OwnedIndicator`, a
+dimmed sprite with no text) gave no textual identity - matching a pocket to
+a Pokemon meant already knowing dex order by sight.
+
+**Fix:** both now show the Pokemon's name and dex number (`#NNN`, the same
+zero-padding `PokemonListItem` already uses) in a small label under the
+icon/sprite.
+
+**Bug found shipping this fix, live on the emulator:** the first build of
+the label showed a `BOTTOM OVERFLOWED BY 10 PIXELS` debug banner on every
+single pocket (`binder-pockets-overflow-before-fix.png`) - the icon/sprite
+plus the new two-line label together needed more vertical space than a
+pocket cell actually has, something no widget test caught because none of
+them lay this out against the grid's real, cramped on-screen size (they
+assert text/icon presence, not that it fits). Fixed by wrapping each
+pocket's content in `FittedBox(fit: BoxFit.scaleDown)` around a
+fixed-size icon/sprite + label `Column`, so the whole pocket's content
+scales down together to whatever room is actually available, at any pocket
+size this screen's zoom (AC21) can produce, instead of overflowing.
+Re-verified live: `pockets-with-name-number-labels.png` shows all 9
+pockets on the right page with no overflow banner.
+
+### New feature: search on the binder screen
+
+**Requested:** "the search bar should exist on the binder's view too and
+it'll take me to the page or filter the pages based on my search." The main
+Pokedex list already has a fuzzy name/number search
+(`widgets/pokemon_search_bar.dart` / `utils/search_query_parser.dart`); the
+binder had no way to jump to a specific Pokemon other than paging through
+manually.
+
+**Design decision - jump, not filter:** a binder page is a fixed physical
+layout (9 slots in dex order, per the Pocket model section above); removing
+non-matching pockets from the 3x3 grid would break that model and wouldn't
+look like a real binder page (real binder pages don't have cards vanish out
+of their sleeves). Turning straight to the matching Pokemon's page, and
+highlighting its pocket briefly, is the binder-appropriate equivalent of
+"filter" - the stated goal ("take me to the page... based on my search")
+is satisfied by the jump itself.
+
+**Implementation:** a search field toggled from the `AppBar` (mirroring the
+list's search affordance); on submit, matches by exact dex number first,
+then a case-insensitive substring match against name; turns to that
+Pokemon's page (bypassing the one-page-at-a-time turn animation, the same
+way `scrollToPokemonId` already does on entry) and highlights its pocket
+for a few seconds. No match shows a `SnackBar`, rather than silently doing
+nothing.
+
+### Acceptance criteria
+
+20. During a page turn, in either direction, the static page that is *not*
+    part of the turning leaf shows its real, correct content for the whole
+    animation - never bare leather/spine background in its place.
+21. Pinch-zooming in on the binder allows one-finger panning around the
+    zoomed image; page-turning by drag is disabled while zoomed in past
+    1.0x, and restored once back at 1.0x.
+22. Every pocket not showing a specific selected card (both the "+" empty
+    state and the owned-but-unselected state) displays the Pokemon's name
+    and `#NNN` dex number.
+23. Submitting a name or dex number in the binder's search field turns the
+    binder to the page containing a matching Pokemon and highlights its
+    pocket; a query matching nothing shows a visible "not found" message
+    rather than doing nothing.
+24. No pocket shows a render overflow at any point (added after the
+    overflow bug above was found live - the kind of thing only a real
+    layout pass against the actual grid catches).
+25. All of the above confirmed live per §4.3.1 - this exact doc has now had
+    an animation-only defect, a gesture-conflict defect, and a layout-
+    overflow defect all escape the full automated suite, so for this
+    feature a screenshot/recording is required evidence, not optional
+    polish.
+
+### Acceptance criteria - how each was actually verified
+
+The animation duration (`BinderPageTurnerState`'s `AnimationController`)
+was temporarily changed from 280ms to 2800ms, on-device only, specifically
+to make a real 280ms animation frame reliably screenshot-able over an adb
+round trip (which is itself 50-300ms, too slow to reliably land inside a
+real 280ms window) - reverted immediately after capturing evidence; the
+shipped/committed code still animates at 280ms (confirmed: final rebuild
++ reinstall + `binder-final-no-overflow.png` was captured against the
+reverted, real-duration build, not the slowed one).
+
+20. **Verified both directions, live, mid-turn.** Forward:
+    `page-turn-forward-static-slot-visible-midturn.png` - the left page's
+    real content (#001-#009) is visible mid-turn, not bare leather.
+    Backward: `page-turn-backward-static-slot-visible-midturn.png` - same,
+    mirrored.
+21. **Partially verified.** The scale/pan state machine
+    (`TransformationController`, `_zoomed`, `dragEnabled`) was verified by
+    code review, by the full widget-test suite still passing with the new
+    props wired through, and by confirming the binder still renders and
+    pages still turn correctly with the real `InteractiveViewer` in place
+    on the emulator. **Not captured**: an actual two-finger pinch gesture,
+    because `adb shell input` has no multi-touch/pinch primitive (only
+    single-pointer `tap`/`swipe`) and simulating one would need raw
+    `sendevent` multi-tracking-ID injection, out of scope for this pass.
+    Flagging honestly rather than claiming full e2e proof of the pinch
+    gesture itself.
+22. **Verified live** - see the overflow bug/fix above;
+    `pockets-with-name-number-labels.png` shows every pocket's name+number,
+    no overflow.
+23. **Verified live**, three scenarios: jump-and-highlight
+    (`search-jump-and-highlight.png`, searched "charizard", landed on page
+    0 already visible with #006 highlighted in amber), and no-match
+    (`search-no-match-snackbar.png`, a query matching nothing shows the
+    "No Pokemon found" `SnackBar`). A cross-page jump (search landing on a
+    page other than the one currently shown) was exercised by code path
+    (same `_rightPageIndex` set as `scrollToPokemonId` on entry, which AC1
+    already covers) but not separately screenshotted.
+24. **Verified live** - see AC22's evidence; also confirmed via `flutter
+    analyze` (no new issues) that no other overflow-shaped warnings were
+    introduced.
+
+### Traceability
+
+| AC | Evidence |
+|---|---|
+| 20 | `page-turn-forward-static-slot-visible-midturn.png` + `page-turn-backward-static-slot-visible-midturn.png`, both taken mid-turn with the animation temporarily slowed for capture (see above) |
+| 21 | Code review + full widget-test suite passing with `TransformationController`/`dragEnabled` wired in; pinch gesture itself not capturable via adb (see note above) |
+| 22 | `pockets-with-name-number-labels.png` |
+| 23 | `search-jump-and-highlight.png` + `search-no-match-snackbar.png` |
+| 24 | `binder-pockets-overflow-before-fix.png` (bug) / `pockets-with-name-number-labels.png` + `binder-final-no-overflow.png` (fixed) |
 
 All screenshots: `docs/features/card-binder/screenshots/`.
 

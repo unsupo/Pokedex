@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/pokeapi/pokemon.dart';
 import '../../utils/binder/binder_pocket.dart';
+import '../../utils/string_utils.dart';
 
 /// Renders one binder pocket - the three states from the "Pocket model"
 /// section of docs/features/card-binder.md (plus the data-model's
@@ -33,12 +34,12 @@ class BinderPocketWidget extends StatelessWidget {
         child: AspectRatio(
           aspectRatio: 0.7,
           child: switch (view) {
-            SelectedPocket() =>
-              _SleeveCard(imageUrl: view.card.images?.small, label: view.card.name ?? ''),
+            SelectedPocket() => _SleeveCard(
+                imageUrl: view.card.images?.small, label: view.card.name ?? ''),
             SelectedPocketMissingData() =>
               _SleeveCard(imageUrl: null, label: view.cardId),
             OwnedPocket() => _OwnedIndicator(pokemon: pokemon),
-            EmptyPocket() => const _EmptyPocket(),
+            EmptyPocket() => _EmptyPocket(pokemon: pokemon),
           },
         ),
       ),
@@ -107,7 +108,8 @@ class _SleeveCard extends StatelessWidget {
                         textAlign: TextAlign.center,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 9, color: Colors.black54),
+                        style:
+                            const TextStyle(fontSize: 9, color: Colors.black54),
                       ),
                     ),
                   )
@@ -156,40 +158,81 @@ class _OwnedIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.all(3),
-      alignment: Alignment.center,
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: ColorFiltered(
-          // The same greyscale matrix the uncaught pokeball icon already
-          // uses (PokemonListItem / the details screen's FAB) - deliberately
-          // duplicated here rather than shared, since reaching into those
-          // unrelated widgets to extract a constant isn't worth the coupling
-          // for four lines of literals.
-          colorFilter: const ColorFilter.matrix(<double>[
-            0.2126, 0.7152, 0.0722, 0, 0,
-            0.2126, 0.7152, 0.0722, 0, 0,
-            0.2126, 0.7152, 0.0722, 0, 0,
-            0, 0, 0, 1, 0,
-          ]),
-          child: CachedNetworkImage(
-            imageUrl: pokemon.imageUrl,
-            memCacheWidth: 150,
-            errorWidget: (context, url, error) =>
-                const Icon(Icons.catching_pokemon, color: Colors.grey),
-          ),
+      padding: const EdgeInsets.all(4),
+      alignment: Alignment.center,
+      // FittedBox(scaleDown), not Expanded, around a fixed-size sprite -
+      // found live on the emulator (not caught by any widget test, which
+      // never actually lays this out against the grid's real, cramped
+      // cell size): a fixed-height SizedBox + label Column, with no way to
+      // shrink, overflowed its pocket by 10px the moment the identity
+      // label (AC22) was added below what used to be just the sprite
+      // alone. scaleDown guarantees this never overflows, at any pocket
+      // size this screen's zoom (AC21) can produce, by shrinking the
+      // sprite+label together rather than letting the label get clipped.
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 64,
+              height: 64,
+              child: ColorFiltered(
+                // The same greyscale matrix the uncaught pokeball icon
+                // already uses (PokemonListItem / the details screen's
+                // FAB) - deliberately duplicated here rather than shared,
+                // since reaching into those unrelated widgets to extract a
+                // constant isn't worth the coupling for four lines of
+                // literals.
+                colorFilter: const ColorFilter.matrix(<double>[
+                  0.2126,
+                  0.7152,
+                  0.0722,
+                  0,
+                  0,
+                  0.2126,
+                  0.7152,
+                  0.0722,
+                  0,
+                  0,
+                  0.2126,
+                  0.7152,
+                  0.0722,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                ]),
+                child: CachedNetworkImage(
+                  imageUrl: pokemon.imageUrl,
+                  memCacheWidth: 150,
+                  fit: BoxFit.contain,
+                  errorWidget: (context, url, error) =>
+                      const Icon(Icons.catching_pokemon, color: Colors.grey),
+                ),
+              ),
+            ),
+            const SizedBox(height: 2),
+            _PocketIdentityLabel(pokemon: pokemon),
+          ],
         ),
       ),
     );
   }
 }
 
-/// State 3: nothing owned - just the "+" affordance.
+/// State 3: nothing owned - the "+" affordance.
 class _EmptyPocket extends StatelessWidget {
-  const _EmptyPocket();
+  final Pokemon pokemon;
+
+  const _EmptyPocket({required this.pokemon});
 
   @override
   Widget build(BuildContext context) {
@@ -210,9 +253,63 @@ class _EmptyPocket extends StatelessWidget {
           ),
         ],
       ),
+      padding: const EdgeInsets.all(4),
       alignment: Alignment.center,
-      child: Icon(Icons.add_circle_outline,
-          color: Colors.black.withValues(alpha: 0.35), size: 26),
+      // See the matching comment on _OwnedIndicator - same overflow, same
+      // fix: scale the icon+label down together rather than let either
+      // one overflow the pocket.
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.add_circle_outline,
+                color: Colors.black.withValues(alpha: 0.35), size: 24),
+            const SizedBox(height: 4),
+            _PocketIdentityLabel(pokemon: pokemon, dim: true),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The Pokemon's name + dex number, shown under the icon/sprite on any
+/// pocket that isn't already displaying a specific selected card - added
+/// per "Pockets with nothing selected don't say which Pokemon they are" in
+/// the "Third round" section of docs/features/card-binder.md (AC22): the
+/// bare "+" icon or a dimmed, hard-to-place sprite gave no way to tell
+/// which Pokemon a pocket belonged to without already knowing dex order.
+class _PocketIdentityLabel extends StatelessWidget {
+  final Pokemon pokemon;
+
+  /// Slightly lower-contrast text for the empty "+" state, so it reads as
+  /// a caption rather than competing with the owned-indicator sprite's
+  /// usual text weight.
+  final bool dim;
+
+  const _PocketIdentityLabel({required this.pokemon, this.dim = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Colors.black.withValues(alpha: dim ? 0.45 : 0.6);
+    final style = TextStyle(
+        fontSize: 9, color: color, fontWeight: FontWeight.w600, height: 1.1);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('#${pokemon.id.toString().padLeft(3, '0')}', style: style),
+          Text(
+            capitalizeFirstLetter(pokemon.name),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: style,
+          ),
+        ],
+      ),
     );
   }
 }

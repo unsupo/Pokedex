@@ -1,12 +1,27 @@
 # Card binder view
 
-Status: **In progress** (2026-10-11) - "Ninth round" below (a caught-but-
-cardless Pokemon now shows the owned sprite, not "+") is live-verified on
-`emulator-5554`. "Eighth round" (the binder's own footprint, not just its
-content, now grows while zoomed) is built and unit/widget-tested but its
-one genuinely pinch-dependent claim (AC37/38) still can't be driven by
-`adb`/emulator automation (no multi-touch primitive) - code-reviewed
-against the Flutter SDK source only, same limitation as AC21. "Seventh
+Status: **In progress** (2026-10-11) - "Twelfth round" below fixes a page
+turn sliding the spread by one page-group instead of revealing a genuinely
+new, non-overlapping pair each time (the real root cause behind this doc's
+earlier "page 1 and page 2 look identical"-style reports, which turned out
+to be misdiagnosed as caching/content bugs in some earlier rounds - the
+page data itself was never wrong) - **live-verified on `emulator-5554`**
+(forward/backward taps and an odd-page search jump all landed exactly on
+the expected non-overlapping pairs). "Eleventh round" fixed a transient
+TCG-fetch failure reading as "no cards found" (now a distinct retry state)
+and relabeled the already-working add/remove path. "Tenth round" replaces
+the Eighth round's zoom-growth fix, which shipped but turned out to have
+no effect on a real phone (it loosened a width constraint that was never
+the binding one on a portrait screen) - `InteractiveViewer` is gone
+entirely now, replaced with a plain `GestureDetector` directly driving the
+binder's real layout size. All three built and tested; the Tenth round's
+pinch-zoom growth and the Eleventh round's fetch-retry UI are both still
+pending their own live check - neither can be driven by `adb`/emulator
+automation (no multi-touch primitive for the former; the latter needs a
+simulated upstream failure, not just a cold cache) - see each round's own
+Status line. "Ninth round" (a caught-
+but-cardless Pokemon now shows the owned sprite, not "+") is live-verified
+on `emulator-5554`. "Seventh
 round" (pre-existing caught cards with no selection now get one
 automatically) and "Sixth round" (pinch-to-zoom never actually worked - a
 competing gesture recognizer always ate the gesture before a pinch could
@@ -1205,6 +1220,314 @@ owned, none chosen to display" and showed the dimmed sprite, not "+"
 (`caught-cardless-pokemon-shows-sprite.png`). Tapped it and confirmed it
 opened straight into "All cards - tap to catch" (the browse grid), not
 the cycle picker (`caught-cardless-pokemon-opens-browse.png`) - AC40.
+
+## Tenth round: zoom *still* didn't grow the binder - the Eighth-round fix was wrong
+
+Status: **Done**, built and unit/widget-tested; the one genuinely pinch-
+dependent part (does it actually grow on a real two-finger gesture) still
+can't be driven by `adb`/emulator automation, same limitation noted for
+AC21/AC37.
+
+**Reported:** "i still can't zoom the binder just what's inside it" -
+after the Eighth-round fix had already shipped and the user retested on
+the phone.
+
+**Root cause: the Eighth-round fix loosened the wrong constraint.**
+`ConstrainedBox(maxWidth: 820)` only ever matters on a screen *wider*
+than 820 logical pixels - a tablet or desktop window. On an actual phone
+(~360-430dp wide), the binder's width was already being capped by the
+*screen's own width* (via `Padding`+`Expanded`+`Center`), well under 820,
+long before the 820 cap ever became the binding constraint - so animating
+that cap toward `double.infinity` while zoomed had **no effect
+whatsoever** on a phone. Worse, on a *portrait* phone the binder's
+rendered size is typically governed by *height* (`Expanded`'s available
+vertical space, via `AspectRatio`'s need to satisfy 16:10 within whichever
+dimension is tighter), not width at all - the previous fix only ever
+touched a width constraint, so it could not have grown the binder even on
+a screen where 820 genuinely was the active cap.
+
+**A second, deeper problem, caught in design review before shipping a
+second wrong fix:** simply making the *outer* box bigger while
+`InteractiveViewer` *also* keeps applying its own internal content-zoom
+transform to what's inside that box would double-scale the content -
+once from the box's own larger layout size reflowing the grid naturally
+bigger, and again from `InteractiveViewer`'s internal matrix magnifying
+that already-bigger content further - compounding into overflow/visual
+breakage, not a clean unified zoom.
+
+### Fix
+
+Removed `InteractiveViewer` from the binder screen entirely. A single
+plain `GestureDetector` (`onScaleStart`/`onScaleUpdate`/`onScaleEnd` -
+the same callback shapes `InteractiveViewer` used internally, so the
+AC31 page-turn-vs-pinch routing logic carried over almost unchanged) now
+drives a `_scale` value (1.0-4.0, persisted across separate gestures) and
+a `_panOffset`, both plain `State` fields - not a `TransformationController`
+or any paint-time transform on the binder's content. `build()` computes
+the binder's actual `width`/`height` directly from `_scale` (proportional
+to the same bounded resting size the POC always specified, so it only
+ever grows as a correctly-proportioned 16:10 object) and sizes a
+`SizedBox` to match - genuine layout, so the grid/text/art all re-render
+crisp at the larger size instead of being a blurry stretched bitmap.
+`OverflowBox` lets that `SizedBox` actually exceed the `Expanded`
+region's normal bounds (a plain `Center` alone would just clamp it back
+down); `ClipRect` around that keeps a grown-and-panned binder from
+painting over the `AppBar`/nav controls. Panning (`Transform.translate`
+by `_panOffset`, accumulated from `details.focalPointDelta` during a
+2-or-more-finger update) resets to zero automatically the moment the
+scale drops back to 1.0x, so un-zooming always cleanly re-centers rather
+than leaving a stale offset for the next zoom-in.
+
+**A known, accepted scope cut:** panning only works with two (or more)
+fingers, during the same gesture that's also pinching - there's no
+one-finger pan-while-already-zoomed (a common photo-viewer pattern).
+Adding that would mean a second, different single-finger-gesture meaning
+depending on zoom state, on top of the existing single-finger-means-page-
+turn-when-not-zoomed routing - judged not worth the added complexity for
+this pass; revisit if a real two-finger-only pan proves awkward in
+practice.
+
+### Acceptance criteria
+
+42. Pinching changes the binder's actual rendered size (`SizedBox`
+    width/height), not a transform applied to fixed-size content -
+    confirmed by code review, since this is specifically what the
+    previous (wrong) fix got backwards.
+43. The binder can grow beyond its normal bounded resting size without
+    being clamped back down by the surrounding layout.
+44. A grown-and-panned binder never paints over the `AppBar` or the
+    page-turn nav controls.
+45. Un-zooming back to 1.0x always resets panning to centered, not a
+    stale offset.
+46. `InteractiveViewer` is no longer part of the binder screen at all -
+    there is exactly one gesture recognizer, with one clear owner for
+    both zoom and page-turn-by-drag.
+
+### Traceability
+
+| AC | Evidence |
+|---|---|
+| 42 | Code review - `build()`'s `width`/`height` computed from `_scale` and passed to a real `SizedBox`, no `Transform.scale` anywhere in the file |
+| 43 | Code review - `OverflowBox(maxWidth: double.infinity, maxHeight: double.infinity)` wrapping the sized content |
+| 44 | Code review - `ClipRect` wraps the `OverflowBox`, clipping to the `Expanded` region's own bounds |
+| 45 | Code review - `_onScaleUpdate`'s `_scale <= 1.01 ? Offset.zero : ...` branch |
+| 46 | `grep -n "InteractiveViewer" lib/screens/card_binder_screen.dart` - no matches |
+| All | `flutter test test/widgets/binder/` - all 11 tests still passing (page-turn-by-tap, pocket states, search, highlight - none of which depend on the removed `InteractiveViewer`); the pinch gesture itself remains unverifiable via `adb`/emulator automation, same as AC21/AC37 |
+
+## Eleventh round: a transient fetch failure read as "no cards found," and add/remove was there but mislabeled
+
+Status: **Done**, unit/widget-tested; not yet live-verified (phone was
+disconnected when this was built - see the Tenth round's own pending live
+check, still outstanding too).
+
+**Reported:** "sometimes when i click on a card it shows no found cards so
+if i click away and click on it again then it loads them" - and,
+separately, "clicking on a card you have in the binder should have the
+option to pull up the full list to add or remove a card."
+
+### Bug: a failed fetch silently rendered as "no cards found"
+
+**Root cause, in `_CardPickerModalState.build()`:**
+`final allCards = snapshot.data ?? const [];` collapsed two completely
+different outcomes into the same rendering - a genuinely empty result
+(this Pokemon really has zero cards) and `TcgApiProvider.getPokemonCards`
+returning `null` because the fetch itself *failed* (its own `catch` block,
+`lib/services/tcg_api_provider.dart`). This API's upstream 500/502
+flakiness is already documented at length elsewhere in this doc (Fifth/
+Seventh/Eleventh rounds all hit it); the modal had no way to tell "nothing
+to show" apart from "couldn't check," so a transient failure read
+identically to "this Pokemon has no cards," with no retry affordance -
+closing the modal and reopening it was the only way to retry, and since a
+failed fetch is never cached (`getPokemonCards`'s `catch` block never
+writes to `_pokemon`), that accidental retry usually worked, matching
+exactly what was reported.
+
+**Fix:** the `FutureBuilder` now checks `snapshot.data == null` explicitly
+and renders a distinct `_FetchFailed` state (the error message from
+`TcgApiProvider.error`, plus a "Retry" button) before ever collapsing to
+an empty list - the empty-list rendering now only happens for an
+actually-successful-but-empty result. "Retry" just calls the same
+`getPokemonCards` again, in place, without needing to leave the modal.
+
+### Mislabeled: add/remove already worked, just didn't say so
+
+**Investigated:** the full browse grid (`_BrowseView`), reachable from the
+cycle picker's "Add a card" button, already let you tap *any* card to
+toggle its caught status either way (`toggleCardCaught`'s `!card.isCaught`
+flip) - un-catching an already-owned card from here always worked. The
+gap was purely the label: "Add a card" (with a plain `+` icon) implied
+one-directional, add-only, undiscoverable as also supporting removal.
+
+**Fix:** relabeled to "Add / remove cards" (`Icons.library_books_outlined`)
+and the browse grid's own header to "All cards - tap to catch or remove" -
+no behavior change, both already worked exactly as asked.
+
+### Acceptance criteria
+
+47. A fetch failure (not a genuinely empty result) shows a distinct
+    message with a retry option, never the same rendering as "this
+    Pokemon has no cards."
+48. Tapping retry re-attempts the fetch in place, without needing to
+    leave and reopen the modal, and succeeds once the transient failure
+    resolves.
+49. A genuinely empty, successful result (this Pokemon really has zero
+    TCG cards) is unaffected - still shows "No cards found for this
+    Pokemon," not the failure state.
+50. The path to add *or remove* a card from the full list is clearly
+    labeled as doing both, not just implied by existing (undocumented)
+    behavior.
+
+### Traceability
+
+| AC | Test |
+|---|---|
+| 47 | `test/widgets/binder/card_picker_modal_test.dart` - "Eleventh round: a failed fetch shows a retry option, not 'no cards found'..." |
+| 48 | Same test - the retry-and-succeed half of it |
+| 49 | Existing `_BrowseView` empty-state coverage, unchanged - `cards.isEmpty` still renders "No cards found for this Pokemon" |
+| 50 | Code review - button/header text; no dedicated test (label text, not new behavior) |
+
+**A test-infrastructure note worth keeping**, found getting AC47/48's test
+to pass reliably: a single `tester.runAsync` block - even tapping retry
+*and* waiting a full real second inside it - consistently left the
+widget's own `Future.microtask`-wrapped retry call stuck mid-flight
+(confirmed via a throwaway direct call to the same provider method, which
+resolved instantly from cache - the data was ready, the widget's own
+future just never got to finish observing it). A *second*, separate
+`runAsync` block directly awaiting the same provider call afterward is
+what reliably unstuck it. Not fully root-caused (plausibly something about
+how `runAsync`'s real-zone scheduling interacts with a fire-and-forget
+`Future.microtask` once the first `runAsync` block returns control to the
+fake zone) - flagging as a reusable lesson for the next test that retries
+a `FutureBuilder`-driven fetch under `runAsync`, rather than claiming full
+certainty about the mechanism.
+
+## Twelfth round: a page turn only advanced the spread by one page, not two
+
+Status: **Done**, code-reviewed, unit/widget-tested (`flutter analyze`
+clean at the same 80-issue baseline; full suite 377/378, same pre-existing
+unrelated failure as every prior round), and **live-verified on
+`emulator-5554`**: tapping next-page from the initial spread (page 0
+alone) landed on pages 1|2 (dex #010-018 | #019-027), not a slide to
+page 0|1 - tapping next again landed on pages 3|4 (dex #028-036 |
+#037-045) - tapping prev correctly returned all the way to the initial
+spread - and searching for dex #018 (Pidgeot, an odd page-group) correctly
+landed it on the *left* of a spread paired with page 2 on the right,
+confirming `_spreadRightIndexFor`'s odd/even handling. AC51-53 directly
+confirmed this way; AC54 (uneven-count boundary) and AC55 (the leaf's
+mid-flip content swap) are design/code-reviewed but not independently
+live-confirmed - AC54 would need a deliberately small/odd-count fixture
+to observe the graceful end-of-binder case, and AC55 isn't observable
+from static screenshots before/after a turn (the swap happens mid-
+animation, at the edge-on moment). The Tenth round's pinch-zoom growth
+and the Eleventh round's fetch-retry UI are still outstanding - this
+round's live check only exercised the tap-driven nav controls and search,
+not a pinch gesture or a simulated fetch failure.
+
+**Reported**, across two messages: "we still need to fix the page ordering
+it'll put page one on page 1 and page 2" and then, more precisely, "i
+think it's a page turn issue where turning the page should advance two
+pages instead of just one let's think about the actual problem p1 turn
+then p2 p3 turn then p4 p5 etc."
+
+### Root cause: the spread model slides by one page-group, not a real book's non-overlapping pairs
+
+`BinderPageTurner.rightPageIndex` was the sole source of truth for the
+spread, with `leftPageIndex` always `rightPageIndex - 1` and every turn
+moving `rightPageIndex` by exactly 1 (`turn()`'s
+`widget.onPageChanged(widget.rightPageIndex + direction)`, and the drag
+handlers' matching `direction`). That's a genuinely consistent, bug-free
+design - each individual page-group's *content* was always correct,
+confirmed repeatedly earlier in this doc via live screenshots - but it's a
+**sliding window**, not how a real book or binder paginates: turning past
+"page 1" left page 1 still sitting there, now on the left, with "page 2"
+newly appeared on the right. The user's own `p1 turn then p2 p3 turn then
+p4 p5` is the real-book model exactly: every turn should reveal a wholly
+new, non-overlapping pair, with nothing carried over from the spread
+before it.
+
+This had been misdiagnosed as a content/caching bug in earlier rounds
+(e.g. the Third round's blanking investigation and the Fifth round's cache
+gap) because "the pages look like they're showing overlapping content" is
+exactly what a correctly-functioning slide-by-one model looks like to
+someone expecting slide-by-two - the underlying page data was never wrong.
+
+**Why not full recto/verso modeling:** a real bound book's pairing works
+because each leaf has two physically different sides (page 2's back is
+page 3) - this app's binder explicitly does not model that (`_buildLeaf`'s
+mirrored-content comment, and the Non-goals section). Re-deriving true
+front/back content per sheet would have been a much larger change for no
+real benefit here, since the pocket data is identical regardless of which
+physical side it's rendered on.
+
+### Fix
+
+`BinderPageTurnerState` gained a single `_pageStep = 2` constant.
+`rightPageIndex` is now always even (0, 2, 4, ...): the first spread still
+shows page 0 alone against the inside cover (unchanged), but every turn
+after that jumps by `_pageStep`, landing on a genuinely new, non-
+overlapping pair (page 1|2, then 3|4, then 5|6, ...) instead of sliding by
+one column. `turn()` and `endExternalDrag()` multiply their `direction`
+sign by `_pageStep` before calling `onPageChanged`; `_canTurnForward` now
+allows a turn as long as at least one further page-group exists at all
+(`rightPageIndex + 1 < pageCount`), not only when a full pair remains, so
+a binder whose total count doesn't pair evenly ends gracefully on a lone
+leftover page against a blank slot - the mirror image of the first
+spread's page-alone-against-the-cover start.
+
+The one genuinely tricky part: the turning leaf itself. It visually
+carries one page's content while flipping, but under this model it has to
+*land* showing the next spread's content for the slot it's settling into
+(e.g. a forward-turning leaf starts showing page 0, but must land showing
+page 1, not page 0 again). `_buildLeaf` now takes `fromPageIndex` and
+`toPageIndex` and switches between them at the same edge-on midpoint
+(`angle.abs() > pi/2`) where the existing counter-flip already happens -
+the leaf is thinnest and least noticeable exactly there, the same way a
+real sheet's front and back are both invisible exactly edge-on, so the
+content swap reads as part of the same flip rather than a jump-cut.
+
+`CardBinderScreen`'s two page-jump call sites (`scrollToPokemonId`'s
+`_initRightPageIndex`, and the search bar's `_onSearchSubmitted`) both
+used to just set `rightPageIndex = page` directly - wrong now that
+`rightPageIndex` must stay even. Both now go through a new
+`_spreadRightIndexFor(pageGroup)` helper: an even target page-group lands
+on the right as before; an odd one needs the spread one higher, which
+brings it into view on the *left* instead. The forward-nav button's
+`canGoForward` check was updated to match `_canTurnForward`'s new
+boundary (`rightPageIndex + 1 < pageCount`).
+
+### Acceptance criteria
+
+51. Turning forward from the first spread (page 0 alone) reveals pages 1
+    and 2 together, not page 0 sliding to the left with page 1 newly
+    appearing on the right.
+52. Turning forward again from there reveals pages 3 and 4, and so on -
+    every spread after the first is a genuinely new, non-overlapping pair.
+53. Jumping to a Pokemon on an odd page-group (via `scrollToPokemonId` or
+    search) shows it on the left of its spread, paired with the even
+    page-group after it (or a blank slot if none exists), not duplicated
+    with the page before it.
+54. A binder whose total pocket count doesn't pair evenly still lets you
+    turn all the way to the last page-group, ending on it alone against a
+    blank slot, rather than getting stuck one page-group short.
+55. The turning leaf's own content matches what it lands on (the new
+    spread), not what it started with - no flip that visually "undoes
+    itself" once flat.
+
+### Traceability
+
+| AC | Test |
+|---|---|
+| 51 | `test/widgets/binder/card_binder_screen_test.dart` - "AC11: tapping the next-page control turns the spread by two pages, not one"; **live-confirmed** on `emulator-5554` (initial spread -> next -> pages 1|2, dex #010-018 \| #019-027) |
+| 52 | Code review - `turn()`'s `_pageStep` multiplication, same mechanism as AC51; **live-confirmed** too (a second next-tap landed on pages 3\|4, dex #028-036 \| #037-045), plus a prev-tap live-confirmed returning all the way back to the initial spread |
+| 53 | `test/widgets/binder/card_binder_screen_test.dart` - "AC1: scrollToPokemonId opens already turned to that Pokemon's page" (dex #10, an odd page-group, lands on the left with nothing on the right); **live-confirmed** via the search bar (dex #18 Pidgeot, also an odd page-group, landed on the left paired with page 2 on the right) |
+| 54 | Code review - `_canTurnForward`'s `rightPageIndex + 1 < pageCount` plus `_buildPage`'s existing `pageIndex >= pageCount` blank fallback; both pre-existing test fixtures only have 10 Pokemon (an unevenly-pairing count), exercised indirectly by AC51/53 above |
+| 55 | Code review - `_buildLeaf`'s `fromPageIndex`/`toPageIndex` swap at the mirrored-content threshold; not independently testable via widget tests, which don't assert mid-animation frame content (same limitation noted for the hinge-shadow/pre-emption logic earlier in this doc) |
+
+**Still outstanding, honestly:** AC54 (graceful end-of-binder on an
+uneven-count fixture) and AC55 (the leaf's mid-flip content swap, not
+observable from static before/after screenshots), plus the Tenth round's
+pinch-zoom growth and the Eleventh round's fetch-retry UI, none of which
+this round's live check happened to exercise.
 
 ## Open questions
 

@@ -274,7 +274,7 @@ void main() {
     await tapAndWaitForRealWork(
         tester, find.byKey(const Key('binder-pocket-2')));
 
-    expect(find.text('All cards - tap to catch'), findsOneWidget);
+    expect(find.text('All cards - tap to catch or remove'), findsOneWidget);
     // No cycle controls, since there's nothing to cycle through yet.
     expect(find.byKey(const Key('binder-confirm-selection')), findsNothing);
   });
@@ -290,7 +290,7 @@ void main() {
 
     // The cycle picker, not the full browse grid.
     expect(find.text('Choose which card to display'), findsOneWidget);
-    expect(find.text('All cards - tap to catch'), findsNothing);
+    expect(find.text('All cards - tap to catch or remove'), findsNothing);
 
     await tapAndAwaitRealWrite(
         tester, find.byKey(const Key('binder-confirm-selection')));
@@ -310,27 +310,37 @@ void main() {
       (tester) async {
     await pumpBinder(tester, scrollToPokemonId: 10);
 
-    // Dex #10 is on page 1, the last page with only 10 Pokemon - it's shown
-    // as the right page, with page 0 (dex #1-9) still visible as its left
-    // facing page, exactly like a real open book.
+    // Dex #10 is on page 1 (an odd page-group), so its spread shows it as
+    // the *left* page - a spread's right slot is always an even page-group
+    // (see "Twelfth round" in docs/features/card-binder.md) - with nothing
+    // on the right, since there are only 10 Pokemon total (no page 2 to
+    // pair it with). Page 0 (dex #1-9) is NOT part of this spread at all:
+    // a real binder's spreads don't overlap, so dex #1 isn't still hanging
+    // around from the previous spread.
     expect(find.byKey(const Key('binder-pocket-10')), findsOneWidget);
-    expect(find.byKey(const Key('binder-pocket-1')), findsOneWidget);
+    expect(find.byKey(const Key('binder-pocket-1')), findsNothing);
   });
 
-  testWidgets('AC11: tapping the next-page control turns exactly one page',
-      (tester) async {
+  testWidgets(
+      'AC11: tapping the next-page control turns the spread by two pages, '
+      'not one', (tester) async {
     await pumpBinder(tester);
-    // Starting spread: no left page yet, right page is dex #1-9.
+    // Starting spread: no left page yet, right page is dex #1-9 (page 0)
+    // alone against the inside cover.
     expect(find.byKey(const Key('binder-pocket-1')), findsOneWidget);
     expect(find.byKey(const Key('binder-pocket-10')), findsNothing);
 
     await tester.tap(find.byKey(const Key('binder-next-page')));
     await settle(tester);
 
-    // Turned exactly one page: the spread is now (page 0 | page 1), so dex
-    // #1 (page 0) is still visible as the new left page, and dex #10 (page
-    // 1) has newly appeared as the right page.
-    expect(find.byKey(const Key('binder-pocket-1')), findsOneWidget);
+    // A real binder's spreads don't overlap - turning past page 0 reveals
+    // an entirely new spread, not a one-column slide that keeps page 0's
+    // content hanging around on the left. With only 10 Pokemon total
+    // (pages 0-1), the new spread is (page 1 | nothing): dex #10 (page 1)
+    // on the left, and dex #1 (page 0) no longer visible anywhere -
+    // reported live: "turning the page should advance two pages instead
+    // of just one... p1 turn then p2 p3 turn then p4 p5".
+    expect(find.byKey(const Key('binder-pocket-1')), findsNothing);
     expect(find.byKey(const Key('binder-pocket-10')), findsOneWidget);
   });
 }

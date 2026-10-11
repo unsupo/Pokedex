@@ -21,6 +21,16 @@ import 'binder_page_grid.dart';
 ///
 /// [rightPageIndex] is the page currently resting on the right (so the left
 /// page is always `rightPageIndex - 1`, or nothing before page 0).
+///
+/// A turn moves the spread by *two* page-groups, not one - see "Twelfth
+/// round" in docs/features/card-binder.md. [rightPageIndex] is always even
+/// (0, 2, 4, ...): the very first spread shows page 0 alone against the
+/// inside cover, and every spread after that shows a genuinely new pair
+/// (page 1|2, then 3|4, then 5|6, ...) rather than sliding by one column at
+/// a time and re-showing a page that was already visible a moment ago -
+/// reported live: "turning the page should advance two pages instead of
+/// just one... p1 turn then p2 p3 turn then p4 p5". `_pageStep` below is
+/// the single knob this depends on.
 class BinderPageTurner extends StatefulWidget {
   final int rightPageIndex;
   final int pageCount;
@@ -51,6 +61,12 @@ class BinderPageTurnerState extends State<BinderPageTurner>
 
   bool get isTurning => _direction != 0;
 
+  /// How many page-groups a single turn advances the spread by - see the
+  /// class doc. The drag/flip animation itself still only ever shows *one*
+  /// leaf's worth of motion (one page-width of drag, one 180-degree flip);
+  /// only the resulting index jump and the leaf's landing content use this.
+  static const int _pageStep = 2;
+
   @override
   void initState() {
     super.initState();
@@ -66,19 +82,26 @@ class BinderPageTurnerState extends State<BinderPageTurner>
     super.dispose();
   }
 
-  bool get _canTurnForward => widget.rightPageIndex < widget.pageCount - 1;
+  // There's something to turn to as long as *any* further page-group
+  // exists beyond the current right page - even just one, landing alone on
+  // the left against a blank right slot (the mirror image of the first
+  // spread's page-0-alone-against-the-cover), not only when a full pair
+  // remains.
+  bool get _canTurnForward => widget.rightPageIndex + 1 < widget.pageCount;
 
   bool get _canTurnBack => widget.rightPageIndex > 0;
 
-  /// Turns exactly one page forward or back (AC11) - used by both the
-  /// tappable navigation controls and a completed drag past the threshold.
+  /// Turns one spread's worth forward or back (AC11, revised - see the
+  /// class doc) - used by both the tappable navigation controls and a
+  /// completed drag past the threshold. [direction] is just a sign (+1/-1,
+  /// unchanged call sites); the actual index jump is `_pageStep` pages.
   Future<void> turn(int direction) async {
     if (isTurning) return;
     if (direction > 0 && !_canTurnForward) return;
     if (direction < 0 && !_canTurnBack) return;
     setState(() => _direction = direction);
     await _controller.animateTo(1.0, curve: Curves.easeInOut);
-    widget.onPageChanged(widget.rightPageIndex + direction);
+    widget.onPageChanged(widget.rightPageIndex + direction * _pageStep);
     _controller.value = 0;
     setState(() => _direction = 0);
   }
@@ -133,7 +156,7 @@ class BinderPageTurnerState extends State<BinderPageTurner>
     final direction = _direction;
     if (_controller.value > 0.5) {
       await _controller.animateTo(1.0, curve: Curves.easeOut);
-      widget.onPageChanged(widget.rightPageIndex + direction);
+      widget.onPageChanged(widget.rightPageIndex + direction * _pageStep);
     } else {
       await _controller.animateTo(0.0, curve: Curves.easeOut);
     }
@@ -160,9 +183,10 @@ class BinderPageTurnerState extends State<BinderPageTurner>
       // rightPageIndex+1. Backward: the static left slot should pre-empt to
       // leftPageIndex-1.
       final staticLeftIndex =
-          _direction < 0 ? leftPageIndex - 1 : leftPageIndex;
-      final staticRightIndex =
-          _direction > 0 ? widget.rightPageIndex + 1 : widget.rightPageIndex;
+          _direction < 0 ? leftPageIndex - _pageStep : leftPageIndex;
+      final staticRightIndex = _direction > 0
+          ? widget.rightPageIndex + _pageStep
+          : widget.rightPageIndex;
 
       // Both static slots always render their real content, full stop - a
       // previous version additionally force-blanked whichever slot the
@@ -232,7 +256,8 @@ class BinderPageTurnerState extends State<BinderPageTurner>
               width: _pageWidth,
               child: _buildLeaf(
                 context,
-                pageIndex: widget.rightPageIndex,
+                fromPageIndex: widget.rightPageIndex,
+                toPageIndex: widget.rightPageIndex + (_pageStep - 1),
                 angle: t * math.pi,
                 alignment: Alignment.centerLeft,
               ),
@@ -245,7 +270,8 @@ class BinderPageTurnerState extends State<BinderPageTurner>
               width: _pageWidth,
               child: _buildLeaf(
                 context,
-                pageIndex: leftPageIndex,
+                fromPageIndex: leftPageIndex,
+                toPageIndex: widget.rightPageIndex - _pageStep,
                 angle: -t * math.pi,
                 alignment: Alignment.centerRight,
               ),
@@ -273,7 +299,8 @@ class BinderPageTurnerState extends State<BinderPageTurner>
 
   Widget _buildLeaf(
     BuildContext context, {
-    required int pageIndex,
+    required int fromPageIndex,
+    required int toPageIndex,
     required double angle,
     required Alignment alignment,
   }) {
@@ -284,10 +311,19 @@ class BinderPageTurnerState extends State<BinderPageTurner>
     // below, this is what makes the leaf read as a rigid sheet rotating in
     // 3D space rather than a flat image being stretched (AC16/AC18).
     final lightFactor = angle.abs() == 0 ? 1.0 : math.cos(angle).abs();
+    // Past the vertical, the leaf shows the page-group that will actually
+    // occupy the slot it's landing in, not the one it was carrying when it
+    // lifted off - a binder spread shows two *different* page-groups side
+    // by side (ids N, N+1 - see the class doc's "Twelfth round"), so a
+    // completed turn has to bring genuinely new content into view, not
+    // just re-show whichever page the flipping leaf started with. The swap
+    // happens exactly at this edge-on midpoint, paired with the existing
+    // counter-flip below - the least noticeable moment for it, the same
+    // way a real sheet's front and back are both invisible exactly edge-on.
+    final pageIndex = showMirrored ? toPageIndex : fromPageIndex;
     final page = showMirrored
         // Past the vertical, counter-flip so the content reads correctly
-        // instead of mirrored - the same page's content shown whichever
-        // side it's on (no recto/verso modeling - a stated non-goal).
+        // instead of mirrored.
         ? Transform(
             alignment: Alignment.center,
             transform: Matrix4.identity()..rotateY(math.pi),

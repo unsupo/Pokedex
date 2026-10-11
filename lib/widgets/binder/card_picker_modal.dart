@@ -48,16 +48,31 @@ class _CardPickerModalState extends State<_CardPickerModal> {
   @override
   void initState() {
     super.initState();
-    // Deferred a microtask, not called directly: showModalBottomSheet
-    // inflates this widget within the *same* build pass as the tap that
-    // opened it, and TcgApiProvider.getPokemonCards calls notifyListeners()
-    // before its first await (to flip on its loading flag) - calling that
-    // synchronously from initState trips Flutter's "setState during build"
-    // guard. A microtask runs it right after this build finishes instead.
+    _fetchCards();
+  }
+
+  // Deferred a microtask, not called directly: showModalBottomSheet
+  // inflates this widget within the *same* build pass as the tap that
+  // opened it, and TcgApiProvider.getPokemonCards calls notifyListeners()
+  // before its first await (to flip on its loading flag) - calling that
+  // synchronously from initState trips Flutter's "setState during build"
+  // guard. A microtask runs it right after this build finishes instead.
+  //
+  // Also the retry entry point (see build()'s error state, "Eleventh
+  // round" in docs/features/card-binder.md): getPokemonCards only ever
+  // caches a *successful* fetch (its own catch block returns null without
+  // writing to its cache - see tcg_api_provider.dart), so calling it again
+  // after a failure genuinely retries the network request rather than
+  // replaying a stale failure - matching what "close the modal and reopen
+  // it" was already doing by accident, just without needing to leave the
+  // modal.
+  void _fetchCards() {
     final tcgProvider = context.read<TcgApiProvider>();
     _cardsFuture =
         Future.microtask(() => tcgProvider.getPokemonCards(widget.pokemonId));
   }
+
+  void _retry() => setState(_fetchCards);
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +85,23 @@ class _CardPickerModalState extends State<_CardPickerModal> {
             if (snapshot.connectionState != ConnectionState.done) {
               return const Center(child: CircularProgressIndicator());
             }
-            final allCards = snapshot.data ?? const [];
+            // null specifically means the fetch itself failed (see
+            // TcgApiProvider.getPokemonCards's catch block) - distinct
+            // from a successful fetch that's genuinely empty. Collapsing
+            // both into the same "no cards found" message (as this used
+            // to) was indistinguishable from a real empty result, so a
+            // transient upstream failure (this API's well-documented
+            // 500/502 flakiness - see docs/features/card-binder.md) read
+            // as "this Pokemon has no cards," with no way to tell the two
+            // apart short of leaving the modal and reopening it to
+            // silently retry.
+            if (snapshot.data == null) {
+              return _FetchFailed(
+                error: context.read<TcgApiProvider>().error,
+                onRetry: _retry,
+              );
+            }
+            final allCards = snapshot.data!;
             // Watches TcgApiProvider so catching a card in the browse view
             // (AC9) is reflected here immediately, without re-fetching.
             context.watch<TcgApiProvider>();
@@ -92,6 +123,47 @@ class _CardPickerModalState extends State<_CardPickerModal> {
                     onBrowse: () => setState(() => _browsing = true),
                   );
           },
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown when [TcgApiProvider.getPokemonCards] itself failed (not "this
+/// Pokemon genuinely has no cards") - see the comment on [_CardPickerModalState.build].
+class _FetchFailed extends StatelessWidget {
+  final String? error;
+  final VoidCallback onRetry;
+
+  const _FetchFailed({required this.error, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.red, size: 48),
+            const SizedBox(height: 8),
+            const Text('Failed to load cards.',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            if (error != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                error!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+              ),
+            ],
+            const SizedBox(height: 16),
+            ElevatedButton(
+              key: const Key('binder-card-fetch-retry'),
+              onPressed: onRetry,
+              child: const Text('Retry'),
+            ),
+          ],
         ),
       ),
     );
@@ -166,11 +238,20 @@ class _CycleView extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+              // "Add or remove cards," not just "Add a card" - this already
+              // opens the full browse grid (_BrowseView below), where
+              // tapping any card toggles its caught status either way
+              // (toggleCardCaught) - un-catching an already-owned card was
+              // always reachable from here, just not labeled as such.
+              // Reported live: "clicking on a card you have in the binder
+              // should have the option to pull up the full list to add or
+              // remove a card" - see "Eleventh round" in
+              // docs/features/card-binder.md.
               OutlinedButton.icon(
                 key: const Key('binder-browse-button'),
                 onPressed: onBrowse,
-                icon: const Icon(Icons.add),
-                label: const Text('Add a card'),
+                icon: const Icon(Icons.library_books_outlined),
+                label: const Text('Add / remove cards'),
               ),
               ElevatedButton(
                 key: const Key('binder-confirm-selection'),
@@ -234,7 +315,7 @@ class _BrowseView extends StatelessWidget {
                   onPressed: onBack,
                 ),
               const Expanded(
-                child: Text('All cards - tap to catch',
+                child: Text('All cards - tap to catch or remove',
                     style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ],

@@ -39,6 +39,30 @@ class _StubTcgService implements TcgService {
       cardsByPokemonId[nationalDexId] ?? [];
 }
 
+/// Throws the first time [getCardsByNationalDexId] is called for a given
+/// Pokemon id, then succeeds on every call after - simulates the real
+/// upstream 500/502 flakiness this API is documented to exhibit (see
+/// "Eleventh round" in docs/features/card-binder.md), without needing a
+/// real exhausted-retries wait.
+class _FlakyTcgService implements TcgService {
+  final Map<int, List<TcgCard>> cardsByPokemonId;
+  final Set<int> _failedOnce = {};
+
+  _FlakyTcgService({this.cardsByPokemonId = const {}});
+
+  @override
+  Future<TcgCard?> getCard(String cardId) =>
+      throw UnimplementedError('not exercised in this test');
+
+  @override
+  Future<List<TcgCard>> getCardsByNationalDexId(int nationalDexId) async {
+    if (_failedOnce.add(nationalDexId)) {
+      throw Exception('simulated transient upstream failure');
+    }
+    return cardsByPokemonId[nationalDexId] ?? [];
+  }
+}
+
 /// Serves Pokemon #25 and #50 (the ones used in these tests) so
 /// [toggleCardCaught] (called from the browse view) has a real
 /// PokemonApiProvider to mirror a newly-caught card onto.
@@ -171,14 +195,14 @@ void main() {
     await pumpHarness(tester, pokemonId: 25, startInBrowse: false);
 
     expect(find.text('Choose which card to display'), findsOneWidget);
-    expect(find.text('All cards - tap to catch'), findsNothing);
+    expect(find.text('All cards - tap to catch or remove'), findsNothing);
   });
 
   testWidgets('AC8: starting in browse mode skips straight to the full grid',
       (tester) async {
     await pumpHarness(tester, pokemonId: 25, startInBrowse: true);
 
-    expect(find.text('All cards - tap to catch'), findsOneWidget);
+    expect(find.text('All cards - tap to catch or remove'), findsOneWidget);
     expect(find.text('Choose which card to display'), findsNothing);
   });
 
@@ -210,7 +234,7 @@ void main() {
     // opens straight to the browse view - exactly like _onPocketTapped
     // decides for an EmptyPocket.
     await pumpHarness(tester, pokemonId: 50, startInBrowse: true);
-    expect(find.text('All cards - tap to catch'), findsOneWidget);
+    expect(find.text('All cards - tap to catch or remove'), findsOneWidget);
 
     await tester.runAsync(() async {
       await tester
@@ -244,5 +268,59 @@ void main() {
     final view = binderProvider.pocketFor(50, pokemonCaught: false);
     expect(view, isA<SelectedPocket>());
     expect((view as SelectedPocket).card.id, 'picker-modal-card-2');
+  });
+
+  testWidgets(
+      'Eleventh round: a failed fetch shows a retry option, not "no cards '
+      'found" - and retrying actually re-fetches, not a replayed failure',
+      (tester) async {
+    tcgProvider = TcgApiProvider(
+      _FlakyTcgService(cardsByPokemonId: {
+        99: [
+          TcgCard(
+              id: 'flaky-card', name: 'Mew', nationalPokedexNumbers: const [99])
+        ],
+      }),
+      localService,
+      profiles,
+    );
+
+    await pumpHarness(tester, pokemonId: 99, startInBrowse: true);
+
+    expect(find.text('Failed to load cards.'), findsOneWidget);
+    expect(find.text('No cards found for this Pokemon'), findsNothing);
+    expect(find.text('All cards - tap to catch or remove'), findsNothing);
+
+    // The successful retry's own loadCaughtStatus/cacheCards do real Isar
+    // reads *and* a write (saveAllTcgCards) - like every other genuine-I/O
+    // step in this file, that needs runAsync to resolve within the test's
+    // fake-async zone. A bare tap-then-delay runAsync block here, even
+    // with a full second of real waiting, consistently left the widget's
+    // own `_cardsFuture` stuck mid-flight (confirmed: TcgApiProvider's
+    // cache already had the successful result by then, so the fetch
+    // itself wasn't slow - the widget's fire-and-forget
+    // `Future.microtask(...)`-wrapped call just never got to actually
+    // finish once this runAsync block returned control to the fake zone).
+    // Directly awaiting the same provider call again here - a real zone
+    // continuation, not a fixed delay - is what actually lets that
+    // stuck work complete; it resolves to the same cached result either
+    // way, from TcgApiProvider's own id-keyed cache.
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('binder-card-fetch-retry')));
+      await Future<void>.delayed(const Duration(milliseconds: 1000));
+    });
+    await settle(tester);
+    // A second real-zone continuation (confirmed necessary, not cargo-
+    // culted: a single runAsync block above, even with a full second of
+    // real waiting plus this same direct call folded in, consistently
+    // left the widget's own `_cardsFuture` stuck mid-flight) is what
+    // actually lets that stuck work complete - resolves to the same
+    // cached result either way, from TcgApiProvider's own id-keyed cache.
+    await tester.runAsync(() => tcgProvider.getPokemonCards(99));
+    await settle(tester);
+
+    expect(find.text('All cards - tap to catch or remove'), findsOneWidget);
+    expect(
+        find.byKey(const Key('binder-browse-card-flaky-card')), findsOneWidget);
   });
 }

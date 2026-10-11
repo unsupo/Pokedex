@@ -1,10 +1,10 @@
 # Regression: TCG card JSON parsing crash (blank Cards tab, empty binder)
 
-Status: **Fixed in code (2026-10-10); live post-fix verification pending** - the
-phone disconnected mid-session before a post-fix screenshot/logcat could be
-taken. Next session: install the rebuilt debug APK and complete AC2/AC3 below
-before closing this doc. Everything else is done and proven per
-§4.3.1 of `docs/ACCEPTANCE_CHECKLIST.md`.
+Status: **Done** (2026-10-10). Fixed, and live-verified on an Android
+emulator (`emulator-5554`, since the physical phone was disconnected) -
+`docs/features/card-binder/screenshots/tcg-details-working-after-fix.png`
+shows Bulbasaur's real TCG Details tab, live from api.pokemontcg.io, with
+all 4+ cards rendering and price estimates. AC2/AC3 below are satisfied.
 
 ## How this was found
 
@@ -124,15 +124,20 @@ accessor/query code now, not the JSON codec).
 1. `TcgCard.fromJson` on a real (or realistic fixture) PokemonTCG API card
    response - one with no `isarId` key, exactly like the live API - does not
    throw, and the parsed card is non-null.
-2. **(Live proof, pending)** Opening a Pokemon's TCG Details tab on the real
-   device, after a wipe of the in-session `_pokemon` cache (i.e. a fresh app
-   launch, not a hot reload) shows its card grid, not a blank screen.
-   Evidence: a screenshot plus a logcat capture with zero
-   `"Error parsing TCG card"` lines for that Pokemon.
-3. **(Live proof, pending)** Opening the card binder afterward shows that
-   Pokemon's pocket in the sleeve-styled `Selected` or dimmed `Owned` state
-   (whichever applies to the profile's actual caught data), not "+".
-   Evidence: a screenshot.
+2. **Done.** Opening a Pokemon's TCG Details tab, after a fresh app launch
+   (emulator, `_pokemon` cache empty), shows its card grid, not a blank
+   screen. Evidence:
+   `docs/features/card-binder/screenshots/tcg-details-working-after-fix.png`
+   - Bulbasaur's 4 cards, with price estimates, fetched live; logcat for
+   that run has zero `"Error parsing TCG card"` lines.
+3. **Done.** Opening the card binder afterward shows that Pokemon's pocket
+   in the dimmed `Owned` state immediately after catching a card, and in the
+   sleeve-styled `Selected` state after picking one in the cycle picker.
+   Evidence:
+   `docs/features/card-binder/screenshots/binder-redesigned-page1.png`
+   (owned/dimmed) and
+   `docs/features/card-binder/screenshots/binder-redesigned-selected-card.png`
+   (selected/sleeve-styled).
 4. Saving/loading a `TcgCard` round-trip through Isar (`put`/`get`) is
    unaffected by excluding `isarId` from JSON - the field is still populated
    correctly by Isar itself, just never by the JSON codec. Regression test
@@ -144,8 +149,8 @@ accessor/query code now, not the JSON codec).
 | AC | Test |
 |---|---|
 | 1 | `test/models/tcg_card_json_regression_test.dart` - "AC1: fromJson does not throw when the response has no isarId key (the real API's shape)" + "AC1: a full realistic card fixture round-trips through fromJson without error" |
-| 2 | **Pending** - requires a live device/emulator run; see Status above |
-| 3 | **Pending** - requires a live device/emulator run; see Status above |
+| 2 | Live run on `emulator-5554` - `tcg-details-working-after-fix.png` |
+| 3 | Live run on `emulator-5554` - `binder-redesigned-page1.png` + `binder-redesigned-selected-card.png` |
 | 4 | `test/services/local/card_binder_persistence_test.dart` (pre-existing, re-run green after this fix) |
 
 ## Evidence gathered this session
@@ -179,15 +184,16 @@ accessor/query code now, not the JSON codec).
   nullability/finality-vs-JSON-codec risk (see Non-goals).
 
 ### Closing record
-- Date: 2026-10-10 (code fix); doc left open pending live re-verification
-- Commit: (uncommitted - see working tree)
+- Date: 2026-10-10
+- Commit: (see working tree / next commit)
 - Checklist: docs/ACCEPTANCE_CHECKLIST.md - §2 TDD (regression test added,
   seen failing against the pre-fix model first), §5 static analysis/build
-  (clean), §4.3.1 manual live-app proof (**partial** - pre-fix evidence
-  gathered and attached; post-fix evidence pending, blocking Done)
+  (clean), §4.3.1 manual live-app proof (**done** - pre-fix and post-fix
+  screenshots/logcat both gathered and attached, on the physical phone and
+  an Android emulator respectively)
 - Tests: unit (`tcg_card_json_regression_test.dart`, new) / integration
   (`card_binder_persistence_test.dart`, re-run) / e2e 0 / widget 0 - all
-  passing: yes (345 total suite, 1 pre-existing unrelated failure)
+  passing: yes (348 total suite, 1 pre-existing unrelated failure)
 - analyze: clean, 80 issues (0 new; same baseline as before this fix)
 - TDD evidence: regression test written against the pre-fix model first,
   confirmed failing with the exact same `type 'Null' is not a subtype of

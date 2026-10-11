@@ -82,8 +82,20 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Card Binder')),
-      backgroundColor: const Color(0xFF3A3530),
-      body: !binder.isLoaded || sortedIds.isEmpty
+      // A radial vignette, not a flat fill (see "Visual redesign" in
+      // docs/features/card-binder.md) - a single flat Scaffold background
+      // color was the biggest reason the whole screen read as painted
+      // rather than lit; this alone gives the binder a surface to sit on.
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: RadialGradient(
+            center: Alignment(0, -0.2),
+            radius: 1.3,
+            colors: [Color(0xFF55493C), Color(0xFF3A3024), Color(0xFF1C1712)],
+            stops: [0.0, 0.6, 1.0],
+          ),
+        ),
+        child: !binder.isLoaded || sortedIds.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : Padding(
               padding: const EdgeInsets.all(16),
@@ -123,6 +135,7 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
                 ],
               ),
             ),
+      ),
     );
   }
 }

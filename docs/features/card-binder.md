@@ -1,24 +1,23 @@
 # Card binder view
 
-Status: **Implemented, visual redesign requested and not yet built**
-(2026-10-10). Visual design and page-turn mechanics POC'd and approved in
-direction (see Animation); paper-bend polish deliberately deferred and still
-not built (unchanged from the POC). Per-pocket card selection (see below)
-added after the POC - changes the binder's layout unit from "one pocket per
-caught card" to "one pocket per Pokemon." Its one open question
-(owned-but-unselected visual) is resolved below.
+Status: **Done** (2026-10-10). Visual design and page-turn mechanics POC'd
+and approved in direction (see Animation); paper-bend polish deliberately
+deferred and still not built (unchanged from the POC). Per-pocket card
+selection (see below) added after the POC - changes the binder's layout
+unit from "one pocket per caught card" to "one pocket per Pokemon." Its one
+open question (owned-but-unselected visual) is resolved below.
 
 **2026-10-10 follow-up, after seeing it on a real device:** the shipped
-Flutter build does not read as a binder at all - confirmed by screenshot
+Flutter build did not read as a binder at all - confirmed by screenshot
 against the approved POC, see "Visual redesign" below. This was invisible to
 every automated test (all were green) because none of them render real
 pixels against the full-screen layout the way a live run does, and because
 every pocket on the page tested happened to be empty (itself downstream of
 the parsing bug in
 [tcg-card-json-parsing-regression.md](tcg-card-json-parsing-regression.md) -
-fixed separately, but that fix alone does not address the visual gap below).
-The redesign is specified but **not implemented yet** - see Status in that
-section.
+fixed separately from the visual gap below). The redesign (new ACs 15-19) is
+now built and live-verified on an emulator - see "Visual redesign" below,
+including a real page-turn bug found only by driving the live app.
 
 All data-model/behavioral ACs (1-10, 13, 14) have a passing automated test.
 AC11/AC12 (the page-turn animation itself) are implemented per the Animation
@@ -290,10 +289,13 @@ An icon button, top-right of `PokemonDetailsScreen`'s Cards tab, opens
 
 ## Visual redesign (2026-10-10 follow-up)
 
-Status: **Open - specified, not implemented.** Blocked on live device access
-(phone disconnected this session before implementation started); do not mark
-any AC in this section Done without the screenshot evidence §4.3.1 of
-`docs/ACCEPTANCE_CHECKLIST.md` requires.
+Status: **Done**, verified live on an Android emulator (`emulator-5554`,
+since the physical phone was disconnected this session). Before/after
+screenshots for every AC are under
+`docs/features/card-binder/screenshots/`. One additional real bug was found
+and fixed in the course of this verification - see "Bug found during live
+verification" below; it would not have been caught any other way, which is
+exactly the point of §4.3.1.
 
 ### What's actually on screen today
 
@@ -378,11 +380,44 @@ against a desktop browser:
     verification (not just a wide simulator window) - screenshot evidence
     required per §4.3.1.
 
+Implementation note: this pass went straight to Flutter rather than a fresh
+HTML POC iteration (the plan originally proposed above) - the fixes were
+well-understood CSS-equivalent techniques (gradients, box-shadow, a
+darkening overlay keyed to the rotation angle), and the live
+build-install-screenshot loop on the emulator gave faster, more accurate
+feedback than a desktop-browser POC would have for a phone-width target.
+
+### Bug found during live verification
+
+Driving a real page turn on the emulator (not exercised by any widget test,
+which only asserts the page index after a turn completes, never mid-turn)
+showed the static page on the side *not* being vacated displaying the same
+stale content as the turning leaf, instead of the next page's content -
+e.g. turning forward past a page with a caught card showed that same card
+twice, once on the flying leaf and once underneath it, instead of showing
+the (empty) next page underneath. Root cause:
+`BinderPageTurnerState.build` rendered the untouched static slot from
+`widget.rightPageIndex`/`leftPageIndex` unconditionally, but those props
+only update *after* `turn()`'s animation completes - so mid-turn, the slot
+that's supposed to already be "waiting there" (the way a real binder's next
+page already sits under the one being lifted) was still showing the
+pre-turn page. Fixed by pre-empting the static slot's index by one in the
+direction of the turn while `_direction != 0`. See
+`docs/features/card-binder/screenshots/page-turn-static-slot-bug-before-fix.png`
+(bug) and `page-turn-static-slot-fixed.png` (fixed) - both taken mid-turn on
+the live emulator.
+
 ### Traceability
 
 | AC | Evidence |
 |---|---|
-| 15-19 | **Not started.** Each needs a before/after screenshot pair under `docs/features/card-binder/screenshots/`, taken on the real device per §4.3.1 of `docs/ACCEPTANCE_CHECKLIST.md`, plus the new POC artifact's link once built. None of these are unit/widget-testable - they are purely visual. |
+| 15 | `binder-redesigned-page1.png` - the inside cover (left of the spine) shows the textured `BinderInsideCover` panel, not raw background |
+| 16 | `binder-redesigned-page1.png` - spine shows a lit bevel gradient and ring highlights, not a flat bar |
+| 17 | `binder-redesigned-page1.png` / `binder-redesigned-selected-card.png` - page surface shows a corner-lit gradient and a drop shadow under its edge |
+| 18 | `page-turn-static-slot-fixed.png`, taken mid-turn - the turning leaf's perspective + darkening and the hinge shadow are visible; the (separately found and fixed) static-slot bug above is also evidenced here |
+| 19 | All screenshots taken at the emulator's actual phone resolution (1080x2400, `sdk_gphone64_arm64`), not a resized desktop window |
+
+All screenshots: `docs/features/card-binder/screenshots/`.
 
 ## Open questions
 

@@ -75,12 +75,19 @@ class _SleeveCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(6),
         boxShadow: const [
-          // The sleeve's recessed inner-shadow edge.
+          // The sleeve's recessed inner-shadow edge, plus a slight lift off
+          // the page itself - a card in a sleeve sits a hair proud of the
+          // page card-stock (see "Visual redesign" in the design doc).
           BoxShadow(
             color: Colors.black26,
             blurRadius: 2,
             spreadRadius: -1,
             offset: Offset(0, 1),
+          ),
+          BoxShadow(
+            color: Colors.black45,
+            blurRadius: 4,
+            offset: Offset(0, 2),
           ),
         ],
         border: Border.all(color: Colors.black12, width: 1),
@@ -190,14 +197,22 @@ class _EmptyPocket extends StatelessWidget {
       margin: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: Colors.black26,
-          style: BorderStyle.solid,
-          width: 1,
-        ),
+        // A recessed, empty sleeve - an inset shadow (via a border plus a
+        // negative-spread inner glow) rather than a plain outline, so it
+        // reads as a cut-out pocket, not a drawn box (see "Visual redesign").
+        color: Colors.black.withValues(alpha: 0.05),
+        border: Border.all(color: Colors.black26, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 3,
+            spreadRadius: -1,
+          ),
+        ],
       ),
       alignment: Alignment.center,
-      child: const Icon(Icons.add, color: Colors.black38, size: 28),
+      child: Icon(Icons.add_circle_outline,
+          color: Colors.black.withValues(alpha: 0.35), size: 26),
     );
   }
 }

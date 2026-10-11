@@ -235,7 +235,7 @@ void main() {
     expect(
         find.descendant(
           of: find.byKey(const Key('binder-pocket-1')),
-          matching: find.byIcon(Icons.add),
+          matching: find.byIcon(Icons.add_circle_outline),
         ),
         findsNothing);
   });
@@ -247,7 +247,7 @@ void main() {
     expect(
         find.descendant(
           of: find.byKey(const Key('binder-pocket-2')),
-          matching: find.byIcon(Icons.add),
+          matching: find.byIcon(Icons.add_circle_outline),
         ),
         findsOneWidget);
 

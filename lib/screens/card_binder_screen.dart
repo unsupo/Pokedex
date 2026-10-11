@@ -82,48 +82,70 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Card Binder')),
-      // A radial vignette, not a flat fill (see "Visual redesign" in
-      // docs/features/card-binder.md) - a single flat Scaffold background
-      // color was the biggest reason the whole screen read as painted
-      // rather than lit; this alone gives the binder a surface to sit on.
-      body: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment(0, -0.2),
-            radius: 1.3,
-            colors: [Color(0xFF55493C), Color(0xFF3A3024), Color(0xFF1C1712)],
-            stops: [0.0, 0.6, 1.0],
-          ),
-        ),
-        child: !binder.isLoaded || sortedIds.isEmpty
+      // Warm paper, not dark leather - the binder itself is a bounded
+      // object (the "leather base" below) that sits ON this surface, the
+      // same relationship as the approved POC (`--bg` behind a distinct,
+      // shadowed `.binder-stage`). The previous version made the whole
+      // screen the binder's own dark fill, with no surface/object
+      // distinction and no bound on its proportions - see "Visual
+      // redesign" in docs/features/card-binder.md.
+      backgroundColor: const Color(0xFFECE6DA),
+      body: !binder.isLoaded || sortedIds.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
                   Expanded(
-                    child: BinderPageTurner(
-                      key: _turnerKey,
-                      rightPageIndex: _rightPageIndex,
-                      pageCount: pageCount,
-                      onPageChanged: (newIndex) =>
-                          setState(() => _rightPageIndex = newIndex),
-                      spine: const BinderSpine(),
-                      pageBuilder: (context, pageIndex) {
-                        final pageIds =
-                            binderPokemonIdsForPage(sortedIds, pageIndex);
-                        return BinderPageGrid(
-                          pokemonIds: pageIds,
-                          pocketBuilder: (context, pokemonId) {
-                            final pokemon = allPokemon[pokemonId]!;
-                            return BinderPocketWidget(
-                              pokemon: pokemon,
-                              view: binder.pocketFor(pokemonId),
-                              onTap: () => _onPocketTapped(pokemonId),
-                            );
-                          },
-                        );
-                      },
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 820),
+                        // The POC's `.binder-stage` is `aspect-ratio: 16/10`
+                        // - a bounded object, not a panel that stretches to
+                        // fill whatever height it's given. Filling the full
+                        // height (the previous version's bug) is exactly
+                        // what made the binder look "super long" with all
+                        // its content pushed to the top and a huge empty
+                        // void below.
+                        child: AspectRatio(
+                          aspectRatio: 16 / 10,
+                          // Pinch-to-zoom (requested), without a 1-finger
+                          // pan recognizer competing with the page-turn
+                          // drag gesture inside BinderPageTurner.
+                          child: InteractiveViewer(
+                            panEnabled: false,
+                            scaleEnabled: true,
+                            minScale: 1.0,
+                            maxScale: 3.0,
+                            child: _BinderLeatherBase(
+                              child: BinderPageTurner(
+                                key: _turnerKey,
+                                rightPageIndex: _rightPageIndex,
+                                pageCount: pageCount,
+                                onPageChanged: (newIndex) =>
+                                    setState(() => _rightPageIndex = newIndex),
+                                spine: const BinderSpine(),
+                                pageBuilder: (context, pageIndex) {
+                                  final pageIds = binderPokemonIdsForPage(
+                                      sortedIds, pageIndex);
+                                  return BinderPageGrid(
+                                    pokemonIds: pageIds,
+                                    pocketBuilder: (context, pokemonId) {
+                                      final pokemon = allPokemon[pokemonId]!;
+                                      return BinderPocketWidget(
+                                        pokemon: pokemon,
+                                        view: binder.pocketFor(pokemonId),
+                                        onTap: () =>
+                                            _onPocketTapped(pokemonId),
+                                      );
+                                    },
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -135,7 +157,41 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+/// The dark leather panel the pages and spine sit inside - rounded corners,
+/// a drop shadow lifting it off the paper background, and a thin leather
+/// margin around the pages (matching the POC's `.leather-base` +
+/// `.book{inset:10px}`). This is what makes the binder read as a bounded,
+/// tangible object instead of the screen's own background.
+class _BinderLeatherBase extends StatelessWidget {
+  final Widget child;
+
+  const _BinderLeatherBase({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF473D34), Color(0xFF241F1A)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.55),
+            blurRadius: 28,
+            offset: const Offset(0, 14),
+          ),
+        ],
       ),
+      clipBehavior: Clip.antiAlias,
+      padding: const EdgeInsets.all(10),
+      child: child,
     );
   }
 }
@@ -156,20 +212,64 @@ class _NavigationControls extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        IconButton(
-          key: const Key('binder-prev-page'),
+        _NavButton(
+          buttonKey: const Key('binder-prev-page'),
           tooltip: 'Previous page',
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          icon: Icons.chevron_left,
           onPressed: canGoBack ? () => turnerKey.currentState?.turn(-1) : null,
         ),
         const SizedBox(width: 24),
-        IconButton(
-          key: const Key('binder-next-page'),
+        _NavButton(
+          buttonKey: const Key('binder-next-page'),
           tooltip: 'Next page',
-          icon: const Icon(Icons.arrow_forward_ios, color: Colors.white),
+          icon: Icons.chevron_right,
           onPressed: canGoForward ? () => turnerKey.currentState?.turn(1) : null,
         ),
       ],
+    );
+  }
+}
+
+/// A round, bordered page-turn button, matching the POC's `.nav-btn` -
+/// styled for the warm paper background the binder now sits on, rather
+/// than the previous plain white `IconButton` that assumed a dark screen.
+class _NavButton extends StatelessWidget {
+  final Key buttonKey;
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  const _NavButton({
+    required this.buttonKey,
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: const Color(0xFFF7F3E9),
+        shape: const CircleBorder(side: BorderSide(color: Color(0xFFC9BDA5))),
+        child: InkWell(
+          key: buttonKey,
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Icon(
+              icon,
+              color: enabled
+                  ? const Color(0xFF2B2420)
+                  : const Color(0xFF2B2420).withValues(alpha: 0.3),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

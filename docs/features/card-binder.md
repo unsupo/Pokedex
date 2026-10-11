@@ -292,10 +292,38 @@ An icon button, top-right of `PokemonDetailsScreen`'s Cards tab, opens
 Status: **Done**, verified live on an Android emulator (`emulator-5554`,
 since the physical phone was disconnected this session). Before/after
 screenshots for every AC are under
-`docs/features/card-binder/screenshots/`. One additional real bug was found
-and fixed in the course of this verification - see "Bug found during live
-verification" below; it would not have been caught any other way, which is
-exactly the point of §4.3.1.
+`docs/features/card-binder/screenshots/`. Two additional real bugs were
+found and fixed in the course of this verification - see "Bugs found during
+live verification" below; neither would have been caught any other way,
+which is exactly the point of §4.3.1.
+
+**Second round, after seeing the first redesign pass live:** three more
+real problems, all confirmed against the original POC
+(`https://claude.ai/artifact/FN6niep7XfPHN9tvxahi8k`) rather than guessed:
+
+1. The page-turn hinge was pivoting at the *outer screen edge*, not the
+   spine - `BinderPageTurnerState`'s turning leaf was positioned with its
+   box anchored to the wrong side (`left:0` for a forward turn instead of
+   `right:0`), so `Alignment.centerLeft`/`centerRight` pivoted at the
+   screen's far edge instead of the spine in the middle. Fixed by anchoring
+   each leaf's box to the spine-adjacent side it departs from.
+2. The whole screen was the binder's own dark fill, stretched to the full
+   `Expanded` height with no aspect ratio - exactly what the POC does
+   *not* do (`.binder-stage{aspect-ratio:16/10; max-width:820px}`, a
+   bounded object with its own rounded, shadowed "leather base" sitting on
+   a lighter page background, `--bg:#ece6da`). That mismatch was the root
+   cause of all three symptoms reported live: "super long", "pushes
+   everything to the top" (the 3x3 grid's natural height left a huge empty
+   void below it inside the over-tall container), and "doesn't match the
+   design you showed me". Fixed by wrapping the page-turner in a
+   `Center`+`ConstrainedBox`+`AspectRatio(16/10)`+a `_BinderLeatherBase`
+   panel (rounded corners, drop shadow, dark leather gradient, 10px inset
+   margin around the pages - matching the POC's `.leather-base`/`.book`),
+   and changing the Scaffold's background to the POC's warm paper color
+   instead of dark leather.
+3. No pinch-to-zoom. Added `InteractiveViewer` around the bounded binder
+   object (`scaleEnabled: true`, `panEnabled: false` so its own one-finger
+   pan recognizer doesn't compete with the page-turn drag gesture).
 
 ### What's actually on screen today
 
@@ -387,7 +415,7 @@ darkening overlay keyed to the rotation angle), and the live
 build-install-screenshot loop on the emulator gave faster, more accurate
 feedback than a desktop-browser POC would have for a phone-width target.
 
-### Bug found during live verification
+### Bugs found during live verification
 
 Driving a real page turn on the emulator (not exercised by any widget test,
 which only asserts the page index after a turn completes, never mid-turn)
@@ -416,6 +444,8 @@ the live emulator.
 | 17 | `binder-redesigned-page1.png` / `binder-redesigned-selected-card.png` - page surface shows a corner-lit gradient and a drop shadow under its edge |
 | 18 | `page-turn-static-slot-fixed.png`, taken mid-turn - the turning leaf's perspective + darkening and the hinge shadow are visible; the (separately found and fixed) static-slot bug above is also evidenced here |
 | 19 | All screenshots taken at the emulator's actual phone resolution (1080x2400, `sdk_gphone64_arm64`), not a resized desktop window |
+| (2nd round) pivot at spine | `page-turn-hinged-at-spine.png` - taken mid-turn, the leaf's hinge edge sits flush against the rings, not the outer screen edge |
+| (2nd round) bounded/proportioned object | `binder-proportioned-bounded-object.png` - the binder is a centered, rounded, shadowed panel on a lighter page background, matching the POC's proportions, not a full-bleed stretched fill |
 
 All screenshots: `docs/features/card-binder/screenshots/`.
 

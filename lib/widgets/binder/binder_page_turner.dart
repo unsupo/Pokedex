@@ -188,9 +188,16 @@ class BinderPageTurnerState extends State<BinderPageTurner>
                 ),
               ],
             ),
+            // The leaf's box must sit flush against the spine on the side
+            // it's departing from - its hinge-side edge is the spine, the
+            // far edge swings through the turn. Found live (not caught by
+            // any widget test, which never asserts the rotation's geometry -
+            // see Status): this was previously anchored to the *outer*
+            // screen edge instead, which pivoted the whole turn off the
+            // side of the screen rather than at the spine in the middle.
             if (_direction > 0)
               Positioned(
-                left: 0,
+                right: 0,
                 top: 0,
                 bottom: 0,
                 width: _pageWidth,
@@ -203,7 +210,7 @@ class BinderPageTurnerState extends State<BinderPageTurner>
               ),
             if (_direction < 0)
               Positioned(
-                right: 0,
+                left: 0,
                 top: 0,
                 bottom: 0,
                 width: _pageWidth,

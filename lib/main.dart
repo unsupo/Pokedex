@@ -14,6 +14,7 @@ import 'package:pokedex_app/widgets/backup_notice.dart';
 import 'package:pokedex_app/widgets/hamburger_menu.dart';
 import 'package:pokedex_app/widgets/profile/profile_menu.dart';
 import 'package:pokedex_app/widgets/scope/scope_selector_bar.dart';
+import 'screens/card_binder_screen.dart';
 import 'services/local/isar_local_service.dart';
 import 'services/local/local_service.dart';
 import 'services/poke_api_pokemon_service.dart';
@@ -38,8 +39,8 @@ void main() async {
   // clone still runs (just without a TCG API key, which the API tolerates at
   // a lower rate limit - see PokemonTcgApiService).
   await dotenv.load(fileName: '.env', isOptional: true);
-  final LocalService localService = await IsarService.create(
-      onLegacyCaughtData: BackupNotice.markPending);
+  final LocalService localService =
+      await IsarService.create(onLegacyCaughtData: BackupNotice.markPending);
   final profiles = ProfileProvider(
     LocalServiceProfileRepository(localService),
     SharedPreferencesActiveProfileStore(),
@@ -95,8 +96,9 @@ class _PokedexScreenState extends State<PokedexScreen> with RouteAware {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _pokemonApiProvider = Provider.of<PokemonApiProvider>(context, listen: false)
-        ..addListener(_showErrorIfAny);
+      _pokemonApiProvider =
+          Provider.of<PokemonApiProvider>(context, listen: false)
+            ..addListener(_showErrorIfAny);
       _pokemonApiProvider!.fetchData();
       showBackupNoticeIfPending(context,
           onOpenMenu: () => _scaffoldKey.currentState?.openDrawer());
@@ -166,18 +168,58 @@ class _PokedexScreenState extends State<PokedexScreen> with RouteAware {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
   }
 
+  /// Opens the card binder already turned to wherever the list is currently
+  /// scrolled to, not always page 0 - "if you're on a view in the list and
+  /// click the binder icon it'll open the binder at that spot too" (see
+  /// docs/features/card-binder.md). Whichever Pokemon currently sits at the
+  /// vertical center of the visible list is the one passed as
+  /// `scrollToPokemonId`, the same entry point the TCG Details tab's own
+  /// binder button already uses.
+  void _openBinder() {
+    final filtered = context.read<PokemonApiProvider>().filteredPokemon;
+    int? scrollToId;
+    if (filtered.isNotEmpty && _scrollController.hasClients) {
+      final position = _scrollController.position;
+      final index = indexAtViewportCenter(
+        offset: position.pixels,
+        itemExtent: PokemonList.itemExtent,
+        viewportHeight: position.viewportDimension,
+      ).clamp(0, filtered.length - 1);
+      scrollToId = filtered[index].id;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CardBinderScreen(scrollToPokemonId: scrollToId),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(
         title: Text('Pokedex'),
-        actions: const [ProfileButton()],
+        actions: [
+          // Entry point into the card binder (see
+          // docs/features/card-binder.md) - available from the list itself,
+          // not only from a specific Pokemon's TCG Details tab.
+          IconButton(
+            key: const Key('open-card-binder-from-list'),
+            tooltip: 'Open card binder',
+            icon: const Icon(Icons.collections_bookmark_outlined),
+            onPressed: _openBinder,
+          ),
+          const ProfileButton(),
+        ],
       ),
       drawer: const HamburgerMenu(), // Add the hamburger menu here
       body: Column(
         children: [
-          PokemonSearchBar(scrollController: _scrollController,),
+          PokemonSearchBar(
+            scrollController: _scrollController,
+          ),
           const ScopeSelectorBar(),
           Expanded(
             child: context.watch<PokemonApiProvider>().isLoadingPokemon &&

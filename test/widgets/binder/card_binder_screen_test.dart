@@ -343,4 +343,22 @@ void main() {
     expect(find.byKey(const Key('binder-pocket-1')), findsNothing);
     expect(find.byKey(const Key('binder-pocket-10')), findsOneWidget);
   });
+
+  testWidgets(
+      'Thirteenth round: the search field is visible immediately, no '
+      'toggle needed', (tester) async {
+    await pumpBinder(tester);
+
+    // No "tap a magnifying glass to reveal search" step - it's just there,
+    // mirroring the main Pokedex list's own always-visible search bar.
+    expect(find.byKey(const Key('binder-search-field')), findsOneWidget);
+    expect(find.byKey(const Key('binder-search-toggle')), findsNothing);
+
+    await tester.enterText(find.byKey(const Key('binder-search-field')), '10');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await settle(tester);
+
+    // Still works the same as before: jumps and highlights.
+    expect(find.byKey(const Key('binder-pocket-10')), findsOneWidget);
+  });
 }

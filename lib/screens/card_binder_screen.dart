@@ -56,11 +56,13 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
   /// or the interaction ends.
   bool _turningByDrag = false;
 
-  // Search (AC23): a toggled AppBar search field that jumps the binder to
-  // a matching Pokemon's page and briefly highlights its pocket, rather
-  // than filtering pockets out of the fixed 3x3/page dex-order grid - see
-  // "New feature: search on the binder screen" in docs/features/card-binder.md.
-  bool _searching = false;
+  // Search (AC23, revised - see "Thirteenth round" in
+  // docs/features/card-binder.md): an always-visible field under the
+  // AppBar, mirroring the main Pokedex list's own search bar, that jumps
+  // the binder to a matching Pokemon's page and briefly highlights its
+  // pocket - rather than filtering pockets out of the fixed 3x3/page
+  // dex-order grid - see "New feature: search on the binder screen"
+  // further down this doc for why it's a jump, not a filter.
   final TextEditingController _searchController = TextEditingController();
   int? _highlightedPokemonId;
   Timer? _highlightTimer;
@@ -130,13 +132,6 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
     }
   }
 
-  void _toggleSearch() {
-    setState(() {
-      _searching = !_searching;
-      if (!_searching) _searchController.clear();
-    });
-  }
-
   void _onSearchSubmitted(
       String query, List<int> sortedIds, Map<int, Pokemon> allPokemon) {
     final trimmed = query.trim();
@@ -172,8 +167,13 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
     setState(() {
       _rightPageIndex = _spreadRightIndexFor(page);
       _highlightedPokemonId = matchId;
-      _searching = false;
     });
+    // The field already did its job (turning the page) - clearing it and
+    // dropping focus avoids leaving a stale query sitting in an
+    // always-visible field, the way a one-shot "jump" naturally reads as
+    // done rather than a persistent filter that's still "active".
+    _searchController.clear();
+    FocusScope.of(context).unfocus();
     _highlightTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) setState(() => _highlightedPokemonId = null);
     });
@@ -223,30 +223,7 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
     final binder = context.watch<CardBinderProvider>();
 
     return Scaffold(
-      appBar: AppBar(
-        title: _searching
-            ? TextField(
-                key: const Key('binder-search-field'),
-                controller: _searchController,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  hintText: 'Name or #...',
-                  border: InputBorder.none,
-                ),
-                textInputAction: TextInputAction.search,
-                onSubmitted: (q) =>
-                    _onSearchSubmitted(q, sortedIds, allPokemon),
-              )
-            : const Text('Card Binder'),
-        actions: [
-          IconButton(
-            key: const Key('binder-search-toggle'),
-            icon: Icon(_searching ? Icons.close : Icons.search),
-            tooltip: _searching ? 'Close search' : 'Search',
-            onPressed: _toggleSearch,
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Card Binder')),
       // Warm paper, not dark leather - the binder itself is a bounded
       // object (the "leather base" below) that sits ON this surface, the
       // same relationship as the approved POC (`--bg` behind a distinct,
@@ -261,6 +238,31 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
+                  // Always-visible, not a toggle (see "Thirteenth round" in
+                  // docs/features/card-binder.md) - mirrors the main
+                  // Pokedex list's own search bar (widgets/pokemon_search_bar.dart)
+                  // rather than being hidden behind an icon the user has to
+                  // discover first.
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: TextField(
+                      key: const Key('binder-search-field'),
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        labelText: 'Search Pokemon',
+                        hintText: 'Name or #...',
+                        filled: true,
+                        fillColor: const Color(0xFFF7F3E9),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: _searchController.clear,
+                        ),
+                      ),
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (q) =>
+                          _onSearchSubmitted(q, sortedIds, allPokemon),
+                    ),
+                  ),
                   Expanded(
                     // AC21/AC37 ("Sixth"/"Eighth"/"Tenth" rounds in
                     // docs/features/card-binder.md): the binder's actual

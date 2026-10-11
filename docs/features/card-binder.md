@@ -1,6 +1,10 @@
 # Card binder view
 
-Status: **In progress** (2026-10-11) - "Twelfth round" below fixes a page
+Status: **In progress** (2026-10-11) - "Thirteenth round" below adds a
+binder entry point to the main Pokedex list itself (opening at whichever
+Pokemon the list is currently scrolled to) and makes the binder's search
+field always-visible instead of a toggle - **live-verified on
+`emulator-5554`**. "Twelfth round" fixes a page
 turn sliding the spread by one page-group instead of revealing a genuinely
 new, non-overlapping pair each time (the real root cause behind this doc's
 earlier "page 1 and page 2 look identical"-style reports, which turned out
@@ -1528,6 +1532,108 @@ uneven-count fixture) and AC55 (the leaf's mid-flip content swap, not
 observable from static before/after screenshots), plus the Tenth round's
 pinch-zoom growth and the Eleventh round's fetch-retry UI, none of which
 this round's live check happened to exercise.
+
+## Thirteenth round: a persistent entry point on the list itself, opening at the list's current spot, and an always-visible search field
+
+Status: **Done**, unit/widget-tested (`flutter analyze` clean at the same
+80-issue baseline; full suite 383/384, same single pre-existing flaky
+failure as every prior round - confirmed it also passes in isolation, so
+it's test-order/parallelism flakiness, not a regression), and
+**live-verified on `emulator-5554`**: the search field was visible the
+instant the binder opened, with no toggle; scrolling the main Pokedex
+list to show roughly dex #117-125 and tapping the new binder button
+opened the binder on the spread for dex #118-126 | #127-135 - the exact
+pages containing what was on screen, not page 0; and searching "66" from
+there jumped to dex #066 (Machop), highlighted it in amber, and cleared
+the field back to its placeholder afterward.
+
+**Requested:** "i want the binder option to be selected on any of pages
+also there should be the search bar on the binder page too" - clarified
+via follow-up questions to mean: (1) add the binder entry point to the
+main Pokedex list's own AppBar, not only to a specific Pokemon's TCG
+Details tab, and (2) make the binder's existing search field
+always-visible, like the main list's own search bar, instead of a
+magnifying-glass toggle. A third message arrived mid-build: "it should
+also open the binder at the location so if you're on a view in the list
+and click the binder icon it'll open the binder at that spot too."
+
+### A persistent entry point on the Pokedex list
+
+`PokedexScreen`'s `AppBar` gained a second `IconButton`
+(`Icons.collections_bookmark_outlined`, same icon as the existing TCG
+Details tab entry point, key `open-card-binder-from-list`) that opens
+`CardBinderScreen` directly from the list - no longer only reachable by
+first opening a specific Pokemon's details screen and switching to its
+TCG Details tab.
+
+### Opening at "that spot" - whichever Pokemon the list is scrolled to
+
+Rather than always opening on page 0, the new button computes which
+Pokemon currently sits at the vertical center of the visible list and
+passes it as `scrollToPokemonId` - the same parameter
+`PokemonDetailsScreen`'s own binder button already used, so both entry
+points share one notion of "open already turned to this Pokemon's page".
+
+A new pure helper, `indexAtViewportCenter` (`utils/scroll_center_math.dart`,
+alongside the existing `centeredScrollOffset` used by the Home/recenter
+feature - see docs/features/home-recenter.md), is roughly that function's
+inverse: given the list's current scroll offset, itemExtent, and viewport
+height, it reports which fixed-extent row is currently centered. With a
+fixed `itemExtent` (`PokemonList.itemExtent`), this is computable directly
+from the `ScrollController`'s own `position`, the same reasoning
+`centeredScrollOffset` already relies on. `_openBinder()` clamps the
+result into the current filtered list's bounds (empty/out-of-range list
+falls back to no `scrollToPokemonId`, i.e. page 0, rather than crashing or
+guessing) and reads that row's Pokemon id off `filteredPokemon` - the
+*filtered* list, so a search/filter in effect on the main list is
+respected rather than resolved against the raw, unfiltered dex order.
+
+### Always-visible search, not a toggle
+
+The binder's search field (see "New feature: search on the binder screen"
+above) is no longer behind a magnifying-glass `IconButton` that swaps the
+`AppBar` title for a `TextField` on tap. It's now a permanent `TextField`
+row under the `AppBar`, styled to match the main Pokedex list's own
+search bar (`widgets/pokemon_search_bar.dart`) - a label, a clear button,
+and `onSubmitted` driving the same jump-and-highlight behavior as before
+(AC23 is otherwise unchanged - still a jump, not a filter, for the same
+"a binder page is a fixed physical layout" reasoning given when search was
+first added). After a successful jump, the field is cleared and the
+keyboard dismissed, since the query already did its one job (turning the
+page) and a jump isn't a persistent filter the way the main list's search
+is - leaving stale text sitting in an always-visible field would read as
+"still active" when it isn't.
+
+### Acceptance criteria
+
+56. A button to open the card binder is visible on the main Pokedex list
+    itself, not only reachable via a specific Pokemon's TCG Details tab.
+57. Tapping it opens the binder already turned to the page containing
+    whichever Pokemon is currently at the center of the list's visible
+    viewport, not always page 0 - and respects the list's current
+    search/filter (the *filtered* list's center, not the raw dex order).
+58. The binder's search field is visible as soon as the binder screen
+    opens - no extra tap/discovery step needed to reveal it.
+59. Submitting a search still turns to the matching Pokemon's page and
+    highlights its pocket, exactly as before this round (no regression to
+    AC23's existing behavior).
+
+### Traceability
+
+| AC | Test |
+|---|---|
+| 56 | `test/widgets/pokedex_screen_binder_entry_point_test.dart` - "the binder entry point is visible on the Pokedex list itself" |
+| 57 | `test/widgets/pokedex_screen_binder_entry_point_test.dart` - "opens the binder turned to whichever Pokemon the list is currently scrolled to, not always page 0"; `test/utils/scroll_center_math_test.dart` - `indexAtViewportCenter` group covers the underlying math directly |
+| 58 | `test/widgets/binder/card_binder_screen_test.dart` - "Thirteenth round: the search field is visible immediately, no toggle needed" |
+| 59 | Same test - the jump-and-highlight half of it |
+
+**Live-verified on `emulator-5554`**, all four ACs: 56 and 58 by the
+search field and binder button both simply being visible with no extra
+step; 57 by scrolling the main list to roughly dex #117-125 and
+confirming the binder opened on dex #118-126 | #127-135 (the viewport's
+center at the time, Starmie #121, falls in that left page-group); 59 by
+searching "66" and confirming the jump-and-highlight landed on #066
+Machop and the field cleared itself afterward.
 
 ## Open questions
 

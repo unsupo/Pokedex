@@ -46,6 +46,22 @@ class _FakeGetCardService implements TcgService {
       throw UnimplementedError('not exercised in these tests');
 }
 
+/// Serves [cardsByPokemonId] from [getCardsByNationalDexId]; [getCard] is
+/// unused by these tests.
+class _FakeListTcgService implements TcgService {
+  final Map<int, List<TcgCard>> cardsByPokemonId;
+
+  _FakeListTcgService(this.cardsByPokemonId);
+
+  @override
+  Future<TcgCard?> getCard(String cardId) =>
+      throw UnimplementedError('not exercised in these tests');
+
+  @override
+  Future<List<TcgCard>> getCardsByNationalDexId(int nationalDexId) async =>
+      cardsByPokemonId[nationalDexId] ?? [];
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -78,6 +94,46 @@ void main() {
       final cached =
           await localService.getCachedTcgCardsByIds(['repo-cache-1']);
       expect(cached.single.name, 'Charizard');
+    });
+  });
+
+  group('TcgCardRepository.getCardsByNationalDexId', () {
+    test(
+        'always fetches the full list from the network, even when this '
+        "Pokemon already has *some* cards cached via an unrelated path - "
+        'see "Seventeenth round" in docs/features/card-binder.md', () async {
+      // Simulates a card that arrived in the cache via a *different* path
+      // than this method - e.g. the binder's backfillUncachedCaughtCards,
+      // fetching one caught card by id - not via this Pokemon's full list
+      // ever actually being fetched.
+      await repository.cacheCards([
+        TcgCard(
+            id: 'charizard-one-owned',
+            name: 'Charizard (owned)',
+            nationalPokedexNumbers: const [6]),
+      ]);
+
+      final fullList = [
+        TcgCard(
+            id: 'charizard-one-owned',
+            name: 'Charizard (owned)',
+            nationalPokedexNumbers: const [6]),
+        TcgCard(
+            id: 'charizard-other',
+            name: 'Charizard (other printing)',
+            nationalPokedexNumbers: const [6]),
+      ];
+      final repo = DefaultTcgCardRepository(
+          _FakeListTcgService({6: fullList}), localService);
+
+      final result = await repo.getCardsByNationalDexId(6);
+
+      // A cache-first short-circuit here would have returned just the one
+      // card already sitting in the cache from the unrelated path above -
+      // reported live: "i opened charizard tcg details and it only shows
+      // the card i selected it should show both there."
+      expect(result.map((c) => c.id), containsAll(fullList.map((c) => c.id)));
+      expect(result, hasLength(2));
     });
   });
 

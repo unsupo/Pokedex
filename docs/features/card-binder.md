@@ -1,6 +1,9 @@
 # Card binder view
 
-Status: **In progress** (2026-10-11) - "Sixteenth round" below fixes
+Status: **In progress** (2026-10-11) - "Seventeenth round" below reverts
+a real correctness bug the Fifteenth round's own caching "fix" shipped
+(a Pokemon's TCG tab could silently show an incomplete card list) and
+removes two long-dead floating-button icons. "Sixteenth round" below fixes
 one-finger drag-to-turn still not working while zoomed (a leftover
 `!_zoomed` restriction protecting against a panning conflict that, it
 turns out, never existed - panning has only ever been two-finger).
@@ -2046,6 +2049,86 @@ referenced the old restriction.
 | AC | Test |
 |---|---|
 | 71 | Code review only - `_onScaleStart`'s `details.pointerCount == 1` condition no longer also checks `!_zoomed`. A widget test simulating a real one-finger drag while already zoomed would need to first simulate a two-finger pinch to *get* zoomed, which hung this entire test file on teardown when tried for the Fifteenth round's nav-reachability fix (see that round's own test-infrastructure note) - not re-attempted here for the same reason |
+
+## Seventeenth round: the Fifteenth round's caching "fix" shipped a real correctness bug, and two long-dead FAB icons removed
+
+Status: **Done**, unit-tested, code-reviewed, `flutter analyze` clean at
+the same 80-issue baseline, full suite 395/396 (same single pre-existing
+flaky failure as every prior round). Not yet live-verified.
+
+**Reported, two separate things:** "i opened charizard tcg details and it
+only shows the card i selected it should show both there..." and,
+separately, "also the setting gear icon on the bottom right does
+nothing."
+
+### The cache-first "fix" from the Fifteenth round was wrong
+
+**Root cause:** the Fifteenth round added a cache-first check to
+`getCardsByNationalDexId` (skip the network if *any* cards for this
+Pokemon were already cached), to answer "why does the TCG tab keep
+re-fetching every time." The flaw: that same `tcgCards` cache table also
+gets *partially* populated by a completely different path - the binder's
+`backfillUncachedCaughtCards`, which fetches one caught card at a time by
+id. A Pokemon whose only cached card arrived that way (caught via the
+binder, Details screen's TCG tab never opened) looked, to the new check,
+indistinguishable from "this Pokemon's full card list was already
+fetched" - so opening its TCG tab returned just that one card, silently,
+forever. This is a strictly worse bug than the slow-loading question it
+was meant to answer: showing confidently-wrong, incomplete data instead
+of just being slow.
+
+**Fix:** reverted the cache-first short-circuit entirely -
+`getCardsByNationalDexId` always fetches fresh from the network again,
+same as before the Fifteenth round, still caching the result afterward
+(write-through, unchanged) so individual-card lookups elsewhere still
+benefit. Removed `LocalService.getCachedTcgCardsByPokemonId` entirely
+(and its Isar implementation) rather than leave it sitting unused and
+looking safe to reach for again - nothing in the cache distinguishes "the
+full list was fetched" from "something happened to get cached" without a
+dedicated marker, which this round deliberately doesn't attempt to add
+(one subtly-wrong caching optimization this round is enough evidence that
+a second attempt needs real design care, not a quick follow-up). The
+"why does it take a while to load" question itself is back to being
+genuinely unanswered - flagged honestly as a real, still-open trade-off
+below, not quietly dropped.
+
+### Two long-dead floating action button icons removed
+
+**Investigated, not assumed:** the "+" and gear icons stacked below the
+catch-screen/caught-toggle buttons on the Pokemon Details screen had
+*never* been wired up - empty `onTap` callbacks with nothing but a
+`// Action for icon 1` / `// Action for icon 2` leftover comment, no spec
+anywhere for what either was meant to do. Asked rather than guessed,
+since the two plausible readings (an app-wide Settings screen that
+doesn't exist yet; something Pokemon-specific) are materially different,
+undesigned work - the person said to remove both rather than build
+either speculatively.
+
+**Fix:** removed both `Expanded` icon slots from the floating button
+column; it's now three icons (catch screen, caught toggle, home) instead
+of five, with the `SizedBox` height shrunk to match (180 → 108).
+
+### Acceptance criteria
+
+72. Opening a Pokemon's TCG Details tab always shows its full card list,
+    never silently truncated to whichever card(s) happened to already be
+    cached via an unrelated path (e.g. catching one from the binder).
+73. The floating button column on the Pokemon Details screen has no
+    dead/unimplemented icons.
+
+### Traceability
+
+| AC | Test |
+|---|---|
+| 72 | `test/services/tcg_card_repository_test.dart` - "TcgCardRepository.getCardsByNationalDexId always fetches the full list from the network..." - pre-caches one card via an unrelated path, confirms the full two-card list is still returned |
+| 73 | Code review - the two `Expanded` blocks are gone from `pokemon_details_screen.dart`'s floating action button column |
+
+**Still outstanding, honestly:** "why do the TCG details keep taking a
+while to load" (from the Fifteenth round) is genuinely unanswered again -
+the attempted fix was wrong and had to be reverted for correctness. A
+real fix would need a dedicated "this Pokemon's full list was fetched"
+marker, not reusing the existing cache's mere presence as that signal -
+not designed or attempted this round.
 
 ## Open questions
 

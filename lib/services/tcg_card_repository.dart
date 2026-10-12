@@ -44,18 +44,23 @@ class DefaultTcgCardRepository implements TcgCardRepository {
 
   @override
   Future<List<TcgCard>> getCardsByNationalDexId(int nationalDexId) async {
-    // Cache-first - see the doc comment on
-    // LocalService.getCachedTcgCardsByPokemonId for why this didn't
-    // already happen. A cache hit of *any* cards means this Pokemon's
-    // been fetched before; an empty cache is ambiguous (never fetched, vs
-    // genuinely zero cards) and always falls through to a real fetch -
-    // deliberately not distinguished further, since a Pokemon with
-    // genuinely no cards is rare and the cost is just one extra fetch per
-    // *that* Pokemon, not a correctness issue.
-    final cached =
-        await _localService.getCachedTcgCardsByPokemonId(nationalDexId);
-    if (cached.isNotEmpty) return cached;
-
+    // NOT cache-first, on purpose - see "Seventeenth round" in
+    // docs/features/card-binder.md. A "Fifteenth round" attempt at this
+    // (checking LocalService.getCachedTcgCardsByPokemonId before the
+    // network, skipping the fetch on any hit) shipped a real bug: the
+    // *same* `tcgCards` cache also gets partially populated by unrelated
+    // single-card lookups (e.g. the binder's backfillUncachedCaughtCards,
+    // fetching just one caught card by id) - so a Pokemon whose only
+    // cached card arrived that way looked like "already fully fetched"
+    // and silently returned that one card forever, never actually
+    // fetching the rest. Reported live: "i opened charizard tcg details
+    // and it only shows the card i selected it should show both there."
+    // Nothing in the cache distinguishes "the full list was fetched" from
+    // "something happened to get cached" without a dedicated marker this
+    // doc doesn't attempt to add (the risk of getting *that* subtly wrong
+    // too outweighs the load-time win) - so this always fetches fresh,
+    // still caching the result afterward (write-through, same as every
+    // other fetch path) for individual-card lookups elsewhere to benefit.
     final fetched = await _tcgService.getCardsByNationalDexId(nationalDexId);
     if (fetched.isNotEmpty) {
       await cacheCards(fetched);

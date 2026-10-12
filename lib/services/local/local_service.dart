@@ -223,19 +223,6 @@ abstract class LocalService {
   Future<void> saveAllTcgCards(List<TcgCard> cards);
   Future<List<TcgCard>> getCachedTcgCardsByIds(List<String> ids);
 
-  /// Every cached card whose `nationalPokedexNumbers` includes [pokemonId]
-  /// - what `getCardsByNationalDexId` (`tcg_card_repository.dart`) checks
-  /// before hitting the network, so a Pokemon's TCG tab loads instantly on
-  /// a repeat visit (even across app restarts) instead of re-fetching
-  /// every single time. Reported live: "why do the tcg details keep taking
-  /// a while to load in doesn't it save it to my phone so it loads
-  /// quicker next time" - before this, the per-Pokemon card *list* lookup
-  /// never checked the cache at all (only individual card lookups by id
-  /// did), so only the current app session's in-memory
-  /// `TcgApiProvider._pokemon` map avoided repeat fetches. See "Fifteenth
-  /// round" in docs/features/card-binder.md.
-  Future<List<TcgCard>> getCachedTcgCardsByPokemonId(int pokemonId);
-
   /// Wipes only the cached [TcgCard] display data (images, prices, set
   /// info, ...) - deliberately narrower than [clearCache]: leaves
   /// `CaughtTcgCard` (which card ids each profile owns),

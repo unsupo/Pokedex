@@ -1352,16 +1352,6 @@ class IsarService implements LocalService {
   }
 
   @override
-  Future<List<TcgCard>> getCachedTcgCardsByPokemonId(int pokemonId) async {
-    return await _isarTransaction<List<TcgCard>>((isar) async {
-      return await isar.tcgCards
-          .filter()
-          .nationalPokedexNumbersElementEqualTo(pokemonId)
-          .findAll();
-    });
-  }
-
-  @override
   Future<void> clearTcgCardCache() async {
     await _isarTransaction<void>((isar) async {
       await isar.writeTxn(() async {

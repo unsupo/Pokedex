@@ -147,7 +147,7 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       floatingActionButton: SizedBox(
         width: 60,
-        height: 180, // Increased height to accommodate more icons
+        height: 108,
         child: FloatingActionButton(
           onPressed: () {},
           heroTag: 'pokeballAndHomeBtn',
@@ -236,42 +236,13 @@ class _PokemonDetailsScreenState extends State<PokemonDetailsScreen>
                 ),
               ),
               Expanded(
-                // New Icon 1
-                flex: 1,
-                child: GestureDetector(
-                  onTap: () {
-                    // Action for icon 1
-                  },
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).primaryColor,
-                    ),
-                    child: const Center(
-                      child: Icon(Icons.add, color: Colors.white, size: 28),
-                    ),
-                  ),
-                ),
-              ),
-              Expanded(
-                // New Icon 2
-                flex: 1,
-                child: GestureDetector(
-                  onTap: () {
-                    // Action for icon 2
-                  },
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).primaryColor,
-                    ),
-                    child: const Center(
-                      child:
-                          Icon(Icons.settings, color: Colors.white, size: 28),
-                    ),
-                  ),
-                ),
-              ),
-              Expanded(
-                // New Icon 3
+                // Reported live: "also the setting gear icon on the bottom
+                // right does nothing" - this icon, and the "+" icon above
+                // it, had been sitting here unimplemented (empty onTap,
+                // just a `// Action for icon N` comment) with no spec
+                // anywhere for what either was meant to do - removed
+                // rather than guessed at, per the user's own call. See
+                // "Seventeenth round" in docs/features/card-binder.md.
                 flex: 1,
                 child: GestureDetector(
                   onTap: () {

@@ -48,12 +48,12 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
   double _scale = 1.0;
   double _gestureStartScale = 1.0;
   Offset _panOffset = Offset.zero;
-  bool get _zoomed => _scale > 1.01;
 
-  /// True for the lifetime of a single-finger interaction that started
-  /// while not zoomed in - i.e. one we're driving as a page-turn attempt.
-  /// Cleared the moment a second pointer joins (handing off to pinch-zoom)
-  /// or the interaction ends.
+  /// True for the lifetime of a single-finger interaction - i.e. one we're
+  /// driving as a page-turn attempt, whether zoomed in or not (see
+  /// "Fifteenth round" in docs/features/card-binder.md for why this is no
+  /// longer zoomed-state-dependent). Cleared the moment a second pointer
+  /// joins (handing off to pinch-zoom) or the interaction ends.
   bool _turningByDrag = false;
 
   // Search (AC23, revised - see "Thirteenth round" in
@@ -88,17 +88,30 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
     super.dispose();
   }
 
-  // One finger, not already zoomed: a page-turn attempt. Two (or more)
-  // fingers, any time: pinch-zoom/pan, growing the binder's actual size
-  // (see build()) and panning it via `_panOffset`. A page-turn already in
-  // progress is cancelled cleanly the moment a second finger joins -
-  // `details.pointerCount` is checked on every update, not just at start,
-  // so a one-finger-then-add-a-second-finger gesture hands off correctly
-  // mid-stream.
+  // One finger, any time (zoomed or not): a page-turn attempt. Two (or
+  // more) fingers, any time: pinch-zoom/pan, growing the binder's actual
+  // size (see build()) and panning it via `_panOffset`. A page-turn
+  // already in progress is cancelled cleanly the moment a second finger
+  // joins - `details.pointerCount` is checked on every update, not just
+  // at start, so a one-finger-then-add-a-second-finger gesture hands off
+  // correctly mid-stream.
+  //
+  // One-finger drag used to be disabled while zoomed (`!_zoomed` here),
+  // on the assumption that it might be needed for panning - but panning
+  // has only ever been driven by the *two-finger* branch below
+  // (`details.pointerCount >= 2`), so a single finger was never actually
+  // doing anything useful while zoomed: not turning the page, not
+  // panning, nothing. Reported live: "i still can't turn the page if i
+  // zoom in" - confirmed via a follow-up question that this meant
+  // swiping, not the nav buttons (already fixed to stay reachable while
+  // zoomed - see "Fifteenth round" in docs/features/card-binder.md).
+  // Panning two-finger and turning one-finger is the same split already
+  // used at rest, so this isn't a new ambiguity, just extending it to
+  // the zoomed case too.
 
   void _onScaleStart(ScaleStartDetails details) {
     _gestureStartScale = _scale;
-    if (details.pointerCount == 1 && !_zoomed) {
+    if (details.pointerCount == 1) {
       _turningByDrag = true;
       _turnerKey.currentState?.startExternalDrag(details.focalPoint.dx);
     }
@@ -267,13 +280,11 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
   /// `Stack` - see "Fifteenth round" in docs/features/card-binder.md: once
   /// pinch-zoom could genuinely grow the binder past its resting footprint
   /// (the Fourteenth round), painting it *over* the search field/nav row
-  /// also made those controls permanently untappable - worse, it was the
-  /// *only* way left to turn a page while zoomed, since one-finger
-  /// drag-to-turn is deliberately disabled while zoomed (see
-  /// [_onScaleStart]). Reported live: "i can't seem to turn the page when
-  /// zoomed in." The chrome now always paints last/on top instead, so it
-  /// stays reachable at any zoom level - the trade-off is a sufficiently
-  /// zoomed-in binder now renders *behind* that chrome rather than over
+  /// also made those controls permanently untappable. Reported live: "i
+  /// can't seem to turn the page when zoomed in." The chrome now always
+  /// paints last/on top instead, so it stays reachable at any zoom level -
+  /// the trade-off is a sufficiently zoomed-in binder now renders *behind*
+  /// that chrome rather than over
   /// it, which reads fine since both have an opaque fill.
   Widget _buildBinderLayer(List<int> sortedIds, Map<int, Pokemon> allPokemon,
       int pageCount, CardBinderProvider binder) {

@@ -1,6 +1,10 @@
 # Card binder view
 
-Status: **In progress** (2026-10-11) - "Fifteenth round" below
+Status: **In progress** (2026-10-11) - "Sixteenth round" below fixes
+one-finger drag-to-turn still not working while zoomed (a leftover
+`!_zoomed` restriction protecting against a panning conflict that, it
+turns out, never existed - panning has only ever been two-finger).
+"Fifteenth round" below
 **confirms the pinch-zoom fix live on the user's own phone** (a stale
 app process, not a code bug, explained why it looked broken after the
 Fourteenth round), fixes real dollar prices never actually showing
@@ -1995,6 +1999,53 @@ attempt and consumes it, producing a false pass that never actually saw
 the failure UI at all - caught by noticing the expected
 "Error fetching TCG cards" log line was missing, not by the assertion
 itself.
+
+## Sixteenth round: one-finger drag to turn the page still didn't work while zoomed
+
+Status: **Done**, code-reviewed (see below for why a widget test wasn't
+added), `flutter analyze` clean at the same 80-issue baseline, full suite
+394/395 (the same single pre-existing flaky failure as every prior
+round). Not yet live-verified - deployed to the phone but the person
+hadn't re-tested by the time this was written up.
+
+**Reported:** "i still can't turn the page if i zoom in" - after the
+Fifteenth round's Stack-reorder fix had already shipped and been deployed
+fresh (confirmed via a new pid, ruling out the stale-process explanation
+that resolved the *previous* round's zoom report).
+
+**Investigated via one targeted question** rather than assuming the
+Fifteenth round's fix was broken: confirmed the person was swiping/
+dragging with one finger, not using the nav buttons (which the Fifteenth
+round's Stack-reorder genuinely did fix). This exposed a second, separate
+bug sitting right next to the one just fixed.
+
+**Root cause:** one-finger drag-to-turn was gated on `!_zoomed`
+(`_onScaleStart`), a restriction left over from early in this feature's
+design, intended to leave single-finger gestures free for panning while
+zoomed. But panning has only ever been driven by the *two-finger* branch
+of `_onScaleUpdate` (`details.pointerCount >= 2`, using
+`details.focalPointDelta`) - a single finger was never actually doing
+anything useful while zoomed, not turning the page and not panning
+either. The restriction was protecting a conflict that didn't exist.
+
+**Fix:** removed the `!_zoomed` condition - one-finger drag now starts a
+page-turn attempt regardless of zoom state, exactly as it already does at
+rest. Panning stays two-finger-only, so this doesn't introduce a new
+ambiguity between the two gestures, just extends the existing
+one-finger/two-finger split to the zoomed case. Also removed the now-dead
+`_zoomed` getter (no remaining callers) and updated the doc comments that
+referenced the old restriction.
+
+### Acceptance criteria
+
+71. Swiping with one finger turns the page while the binder is zoomed in,
+    the same way it does at rest.
+
+### Traceability
+
+| AC | Test |
+|---|---|
+| 71 | Code review only - `_onScaleStart`'s `details.pointerCount == 1` condition no longer also checks `!_zoomed`. A widget test simulating a real one-finger drag while already zoomed would need to first simulate a two-finger pinch to *get* zoomed, which hung this entire test file on teardown when tried for the Fifteenth round's nav-reachability fix (see that round's own test-infrastructure note) - not re-attempted here for the same reason |
 
 ## Open questions
 

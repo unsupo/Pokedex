@@ -109,6 +109,25 @@ void main() {
     }
   }
 
+  // Polls instead of guessing a fixed delay - see the extensive
+  // trial-and-error in pumpHarness below for why a fixed delay (however
+  // long, however many rounds) wasn't reliable once a real Isar I/O hop
+  // (the cache-first check added in "Fifteenth round") sat ahead of the
+  // network call on this screen's very first fetch. Each round nudges
+  // real async work forward (tester.runAsync) then lets the fake-async
+  // zone's widgets actually rebuild (settle), stopping as soon as
+  // [ready] is true rather than after a fixed, possibly-too-short or
+  // wastefully-long wait.
+  Future<void> pollUntil(WidgetTester tester, bool Function() ready,
+      {int maxRounds = 10}) async {
+    for (var i = 0; i < maxRounds; i++) {
+      if (ready()) return;
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 300)));
+      await settle(tester);
+    }
+  }
+
   Future<void> pumpHarness(WidgetTester tester,
       {required int pokemonId, required bool startInBrowse}) async {
     await tester.pumpWidget(MultiProvider(
@@ -132,8 +151,34 @@ void main() {
       ),
     ));
     await settle(tester);
-    await tester.tap(find.byKey(const Key('open-modal')));
+    // The tap itself happens *inside* the runAsync block, not before it -
+    // matches the file's own proven-necessary pattern for its retry
+    // button below. Real Isar I/O never resolves inside flutter_test's
+    // fake-async zone (a long-documented limitation of this test binary -
+    // see test/widgets/scope/card_caught_toggle_test.dart) - as of
+    // "Fifteenth round" in docs/features/card-binder.md, the very first
+    // fetch can hit real Isar I/O too
+    // (DefaultTcgCardRepository.getCardsByNationalDexId now checks the
+    // local cache before the network, not just a Pokemon whose cards
+    // were already pre-fetched in setUp) - tapping outside/before the
+    // runAsync block (tried first) left the fetch permanently stuck
+    // (never even reaching the underlying service, let alone failing or
+    // succeeding) no matter how many delay/settle rounds followed.
+    // Deliberately no direct `tcgProvider.getPokemonCards(...)` call the
+    // way the retry button below additionally does after its own tap:
+    // calling that here, before a test has had any chance to observe a
+    // first failure, would itself count as a second attempt and silently
+    // consume it (TcgApiProvider.getPokemonCards has no cached result to
+    // short-circuit on yet, so it genuinely re-fetches). A single fixed
+    // delay (tried at 300ms, 1000ms, and two sequential 1000ms rounds)
+    // was never reliable, so this polls instead, stopping as soon as the
+    // modal's loading spinner is gone - a state-agnostic signal that
+    // works whether the fetch is about to show success or failure.
+    await tester
+        .runAsync(() => tester.tap(find.byKey(const Key('open-modal'))));
     await settle(tester);
+    await pollUntil(tester,
+        () => find.byType(CircularProgressIndicator).evaluate().isEmpty);
   }
 
   setUp(() async {

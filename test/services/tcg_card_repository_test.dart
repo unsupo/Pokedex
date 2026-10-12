@@ -220,4 +220,45 @@ void main() {
       expect(service.requestedIds, isEmpty);
     });
   });
+
+  group('TcgCardRepository.clearCache', () {
+    test(
+        'forces a stale cached card to be re-fetched on the next backfill, '
+        'without losing which cards are actually caught - see "Fifteenth '
+        'round" in docs/features/card-binder.md', () async {
+      final profile = await newProfile('clear-cache-stale');
+      final staleService = _FakeGetCardService({});
+      final staleRepo = DefaultTcgCardRepository(staleService, localService);
+      // Simulates a card cached under an old, buggy parse (e.g. the
+      // TCGPlayer price-shape bug) - present in the cache, but with wrong
+      // data (here, simplified to just a different name).
+      await staleRepo.cacheCards([
+        TcgCard(id: 'clear-cache-1', name: 'STALE', nationalPokedexNumbers: [1])
+      ]);
+      await staleRepo.saveCaughtStatus(profile, 'clear-cache-1', true);
+      // Confirms the backfill does NOT touch an already-cached id - this
+      // is the actual staleness bug this feature works around, not
+      // something clearCache itself needs to fix.
+      await staleRepo.backfillUncachedCaughtCards(profile);
+      expect(staleService.requestedIds, isEmpty);
+      expect((await staleRepo.getCaughtCardsForProfile(profile)).single.name,
+          'STALE');
+
+      await staleRepo.clearCache();
+
+      // Now missing from the cache entirely, so the backfill re-fetches it
+      // - this time from a service standing in for the *fixed* parsing.
+      final freshService = _FakeGetCardService({
+        'clear-cache-1': TcgCard(
+            id: 'clear-cache-1', name: 'FRESH', nationalPokedexNumbers: [1]),
+      });
+      final freshRepo = DefaultTcgCardRepository(freshService, localService);
+      await freshRepo.backfillUncachedCaughtCards(profile);
+
+      final caught = await freshRepo.getCaughtCardsForProfile(profile);
+      expect(caught.single.name, 'FRESH');
+      // The caught *status* itself survived the cache clear untouched.
+      expect(caught.single.isCaught, isTrue);
+    });
+  });
 }

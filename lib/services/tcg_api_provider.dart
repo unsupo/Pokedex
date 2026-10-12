@@ -13,8 +13,8 @@ class TcgApiProvider with ChangeNotifier {
   final ProfileProvider _profiles;
   final CaughtTcgCardTransferService _transferService;
 
-  TcgApiProvider(
-      TcgService tcgService, LocalService localService, ProfileProvider profiles)
+  TcgApiProvider(TcgService tcgService, LocalService localService,
+      ProfileProvider profiles)
       : this.withRepository(
           DefaultTcgCardRepository(tcgService, localService),
           profiles,
@@ -108,6 +108,21 @@ class TcgApiProvider with ChangeNotifier {
   /// Switching profile re-reads caught status for every card already loaded.
   Future<void> reloadLoadedCaughtStatus() async {
     await Future.wait(_pokemon.values.map(loadCaughtStatus));
+    notifyListeners();
+  }
+
+  /// Forces every cached card's display data (images, prices, set info,
+  /// ...) to be re-fetched from the API, without losing which cards are
+  /// actually caught - see "Fifteenth round" in
+  /// docs/features/card-binder.md: a card cached before a parsing fix (the
+  /// TCGPlayer price-shape bug) kept showing the old, wrong data forever
+  /// otherwise, since nothing else ever re-fetches a card that's already
+  /// in the cache, however stale. Clears both this provider's own
+  /// in-memory `_pokemon` map (so a Cards tab already open this session
+  /// re-fetches too, not just the binder) and the persisted Isar cache.
+  Future<void> refreshCardCache() async {
+    await _tcgRepository.clearCache();
+    _pokemon.clear();
     notifyListeners();
   }
 

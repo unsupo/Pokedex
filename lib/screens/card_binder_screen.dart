@@ -214,6 +214,149 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
     );
   }
 
+  /// The search field + nav row - "chrome" sitting on top of the binder
+  /// itself (see [_buildBinderLayer]'s doc comment for why paint order
+  /// matters here - "Fifteenth round" in docs/features/card-binder.md).
+  Widget _buildChrome(
+      List<int> sortedIds, Map<int, Pokemon> allPokemon, int pageCount) {
+    return Column(
+      children: [
+        // Always-visible, not a toggle (see "Thirteenth round") - mirrors
+        // the main Pokedex list's own search bar
+        // (widgets/pokemon_search_bar.dart) rather than being hidden
+        // behind an icon the user has to discover first.
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: TextField(
+            key: const Key('binder-search-field'),
+            controller: _searchController,
+            decoration: InputDecoration(
+              labelText: 'Search Pokemon',
+              hintText: 'Name or #...',
+              filled: true,
+              fillColor: const Color(0xFFF7F3E9),
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.clear),
+                onPressed: _searchController.clear,
+              ),
+            ),
+            textInputAction: TextInputAction.search,
+            onSubmitted: (q) => _onSearchSubmitted(q, sortedIds, allPokemon),
+          ),
+        ),
+        const Spacer(),
+        const SizedBox(height: 12),
+        _NavigationControls(
+          turnerKey: _turnerKey,
+          rightPageIndex: _rightPageIndex,
+          pageCount: pageCount,
+          canGoBack: _rightPageIndex > 0,
+          canGoForward: _rightPageIndex + 1 < pageCount,
+        ),
+      ],
+    );
+  }
+
+  /// The binder itself: real pinch-zoom growth (AC21/AC37/AC60 - see
+  /// "Tenth"/"Fourteenth" rounds), clipped against the *whole* available
+  /// body rather than just the narrow strip between the search field and
+  /// nav row, so growth has somewhere real to go instead of being capped
+  /// right back down to its resting footprint.
+  ///
+  /// Painted (and so hit-tested) *before* [_buildChrome] in build()'s
+  /// `Stack` - see "Fifteenth round" in docs/features/card-binder.md: once
+  /// pinch-zoom could genuinely grow the binder past its resting footprint
+  /// (the Fourteenth round), painting it *over* the search field/nav row
+  /// also made those controls permanently untappable - worse, it was the
+  /// *only* way left to turn a page while zoomed, since one-finger
+  /// drag-to-turn is deliberately disabled while zoomed (see
+  /// [_onScaleStart]). Reported live: "i can't seem to turn the page when
+  /// zoomed in." The chrome now always paints last/on top instead, so it
+  /// stays reachable at any zoom level - the trade-off is a sufficiently
+  /// zoomed-in binder now renders *behind* that chrome rather than over
+  /// it, which reads fine since both have an opaque fill.
+  Widget _buildBinderLayer(List<int> sortedIds, Map<int, Pokemon> allPokemon,
+      int pageCount, CardBinderProvider binder) {
+    return Positioned.fill(
+      child: ClipRect(
+        child: Center(
+          child: OverflowBox(
+            maxWidth: double.infinity,
+            maxHeight: double.infinity,
+            child: Transform.translate(
+              offset: _panOffset,
+              child: Builder(builder: (context) {
+                // The POC's `.binder-stage` is `aspect-ratio: 16/10` at a
+                // bounded resting size (not a panel stretching to fill
+                // whatever height it's given - see "Visual redesign") -
+                // `_scale` grows both dimensions from that same resting
+                // size, proportionally, so it only ever grows as a
+                // correctly-proportioned object. Also capped by 60% of
+                // the screen's *height* (converted through the 16:10
+                // ratio to a width bound), not just its width - on a
+                // normal tall phone the width bound always wins so this
+                // changes nothing, but on an unusually wide/short
+                // viewport (a tablet, a foldable's near-square inner
+                // screen, this screen's own widget-test harness) an
+                // un-height-bounded resting size could already be tall
+                // enough to cover the search field/nav row *before* any
+                // zoom - found by a widget test failing to hit-test the
+                // nav button at rest, after "Fourteenth round" let growth
+                // paint outside this screen's narrow middle strip instead
+                // of clipping it back down.
+                final size = MediaQuery.sizeOf(context);
+                final restingWidth = math.min(
+                  math.min(size.width - 32, 820.0),
+                  size.height * 0.6 * 16 / 10,
+                );
+                final width = restingWidth * _scale;
+                final height = width * 10 / 16;
+                return GestureDetector(
+                  onScaleStart: _onScaleStart,
+                  onScaleUpdate: _onScaleUpdate,
+                  onScaleEnd: _onScaleEnd,
+                  child: SizedBox(
+                    width: width,
+                    height: height,
+                    child: _BinderLeatherBase(
+                      child: BinderPageTurner(
+                        key: _turnerKey,
+                        rightPageIndex: _rightPageIndex,
+                        pageCount: pageCount,
+                        onPageChanged: (newIndex) =>
+                            setState(() => _rightPageIndex = newIndex),
+                        spine: const BinderSpine(),
+                        pageBuilder: (context, pageIndex) {
+                          final pageIds =
+                              binderPokemonIdsForPage(sortedIds, pageIndex);
+                          return BinderPageGrid(
+                            pokemonIds: pageIds,
+                            pocketBuilder: (context, pokemonId) {
+                              final pokemon = allPokemon[pokemonId]!;
+                              return _HighlightedPocket(
+                                highlighted: pokemonId == _highlightedPokemonId,
+                                child: BinderPocketWidget(
+                                  pokemon: pokemon,
+                                  view: binder.pocketFor(pokemonId,
+                                      pokemonCaught: pokemon.isCaught),
+                                  onTap: () => _onPocketTapped(pokemonId),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final allPokemon = context.watch<PokemonApiProvider>().allPokemon;
@@ -236,154 +379,20 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Padding(
               padding: const EdgeInsets.all(16),
-              // A Stack, not a plain Column - see "Fourteenth round" in
-              // docs/features/card-binder.md: the Tenth round's fix made
-              // pinch-zoom genuinely grow the binder's own layout size
-              // (not just a paint-time transform on fixed-size content),
-              // but a ClipRect sized to only the narrow strip between the
-              // search field and the nav row then clipped that growth
-              // right back down to the binder's resting footprint -
-              // visually indistinguishable from the original "only the
-              // content zooms" bug it was meant to fix (reported live
-              // again: "zoom in and out still only works inside the
-              // binder"). The search field and nav row now sit in a
-              // Column that only *reserves* their layout position; the
-              // binder itself is a separate layer on top of that,
-              // clipped against this whole Stack instead of just the gap
-              // between them, so growth has somewhere real to go -
-              // painting over the search field/nav row once it's zoomed
-              // in far enough, the same way a zoomed photo viewer takes
-              // over its surrounding chrome. At rest (scale 1.0) the
-              // binder's actual footprint is unchanged, so it doesn't
-              // overlap either bar and both stay fully usable.
+              // A Stack, not a plain Column - see "Fourteenth"/"Fifteenth"
+              // rounds in docs/features/card-binder.md. The binder layer
+              // paints first (so pinch-zoom growth has the whole body to
+              // expand into, not just the narrow strip between the
+              // search field and nav row); the chrome paints last/on top
+              // (so the search field and nav row - the only way to turn
+              // a page while zoomed - always stay reachable, even once
+              // the binder has grown large enough to otherwise cover
+              // them).
               child: Stack(
+                key: const Key('binder-screen-stack'),
                 children: [
-                  Column(
-                    children: [
-                      // Always-visible, not a toggle (see "Thirteenth
-                      // round") - mirrors the main Pokedex list's own
-                      // search bar (widgets/pokemon_search_bar.dart)
-                      // rather than being hidden behind an icon the user
-                      // has to discover first.
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: TextField(
-                          key: const Key('binder-search-field'),
-                          controller: _searchController,
-                          decoration: InputDecoration(
-                            labelText: 'Search Pokemon',
-                            hintText: 'Name or #...',
-                            filled: true,
-                            fillColor: const Color(0xFFF7F3E9),
-                            suffixIcon: IconButton(
-                              icon: const Icon(Icons.clear),
-                              onPressed: _searchController.clear,
-                            ),
-                          ),
-                          textInputAction: TextInputAction.search,
-                          onSubmitted: (q) =>
-                              _onSearchSubmitted(q, sortedIds, allPokemon),
-                        ),
-                      ),
-                      const Spacer(),
-                      const SizedBox(height: 12),
-                      _NavigationControls(
-                        turnerKey: _turnerKey,
-                        rightPageIndex: _rightPageIndex,
-                        pageCount: pageCount,
-                        canGoBack: _rightPageIndex > 0,
-                        canGoForward: _rightPageIndex + 1 < pageCount,
-                      ),
-                    ],
-                  ),
-                  Positioned.fill(
-                    child: ClipRect(
-                      child: Center(
-                        child: OverflowBox(
-                          maxWidth: double.infinity,
-                          maxHeight: double.infinity,
-                          child: Transform.translate(
-                            offset: _panOffset,
-                            child: Builder(builder: (context) {
-                              // The POC's `.binder-stage` is
-                              // `aspect-ratio: 16/10` at a bounded resting
-                              // size (not a panel stretching to fill
-                              // whatever height it's given - see "Visual
-                              // redesign") - `_scale` grows both dimensions
-                              // from that same resting size, proportionally,
-                              // so it only ever grows as a correctly-
-                              // proportioned object. Also capped by 60% of
-                              // the screen's *height* (converted through
-                              // the 16:10 ratio to a width bound), not just
-                              // its width - on a normal tall phone the
-                              // width bound always wins so this changes
-                              // nothing, but on an unusually wide/short
-                              // viewport (a tablet, a foldable's near-
-                              // square inner screen, this screen's own
-                              // widget-test harness) an un-height-bounded
-                              // resting size could already be tall enough
-                              // to cover the search field/nav row *before*
-                              // any zoom - found by a widget test failing
-                              // to hit-test the nav button at rest, after
-                              // "Fourteenth round" (below) let growth
-                              // paint outside this screen's narrow middle
-                              // strip instead of clipping it back down.
-                              final size = MediaQuery.sizeOf(context);
-                              final restingWidth = math.min(
-                                math.min(size.width - 32, 820.0),
-                                size.height * 0.6 * 16 / 10,
-                              );
-                              final width = restingWidth * _scale;
-                              final height = width * 10 / 16;
-                              return GestureDetector(
-                                onScaleStart: _onScaleStart,
-                                onScaleUpdate: _onScaleUpdate,
-                                onScaleEnd: _onScaleEnd,
-                                child: SizedBox(
-                                  width: width,
-                                  height: height,
-                                  child: _BinderLeatherBase(
-                                    child: BinderPageTurner(
-                                      key: _turnerKey,
-                                      rightPageIndex: _rightPageIndex,
-                                      pageCount: pageCount,
-                                      onPageChanged: (newIndex) => setState(
-                                          () => _rightPageIndex = newIndex),
-                                      spine: const BinderSpine(),
-                                      pageBuilder: (context, pageIndex) {
-                                        final pageIds = binderPokemonIdsForPage(
-                                            sortedIds, pageIndex);
-                                        return BinderPageGrid(
-                                          pokemonIds: pageIds,
-                                          pocketBuilder: (context, pokemonId) {
-                                            final pokemon =
-                                                allPokemon[pokemonId]!;
-                                            return _HighlightedPocket(
-                                              highlighted: pokemonId ==
-                                                  _highlightedPokemonId,
-                                              child: BinderPocketWidget(
-                                                pokemon: pokemon,
-                                                view: binder.pocketFor(
-                                                    pokemonId,
-                                                    pokemonCaught:
-                                                        pokemon.isCaught),
-                                                onTap: () =>
-                                                    _onPocketTapped(pokemonId),
-                                              ),
-                                            );
-                                          },
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+                  _buildBinderLayer(sortedIds, allPokemon, pageCount, binder),
+                  _buildChrome(sortedIds, allPokemon, pageCount),
                 ],
               ),
             ),

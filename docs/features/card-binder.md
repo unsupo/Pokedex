@@ -1,7 +1,17 @@
 # Card binder view
 
-Status: **In progress** (2026-10-11) - "Fourteenth round" below fixes
-pinch-zoom growth still being clipped back down to the binder's resting
+Status: **In progress** (2026-10-11) - "Fifteenth round" below
+**confirms the pinch-zoom fix live on the user's own phone** (a stale
+app process, not a code bug, explained why it looked broken after the
+Fourteenth round), fixes real dollar prices never actually showing
+(TCGPlayer's price JSON is keyed by print variant, not flat - confirmed
+against a real API response), and fixes three more bugs the zoom fix's
+own live testing then exposed: stale cached card data never
+self-healing, a clipped bottom pocket row, and the nav row becoming
+unreachable while zoomed. Also makes the Details screen's TCG tab load
+from cache on repeat visits and gives it the same fetch-retry UI the
+binder's picker modal already had. "Fourteenth round" fixes pinch-zoom
+growth still being clipped back down to the binder's resting
 footprint (the Tenth round's fix never actually worked - it was never
 live-pinch-tested), adds a page-number label, and adds a small price
 overlay wherever a card's artwork is shown - partially live-verified (the
@@ -1751,18 +1761,28 @@ Everything else in this round that's observable without a pinch gesture
 (the restructure's correctness at rest, the page label, the price
 overlay) is live-confirmed.
 
-## Fifteenth round: the dollar price was never actually there, and the zoom fix may never have reached the phone
+## Fifteenth round: dollar prices, the zoom fix reaching the phone at all, and three follow-on bugs it then exposed
 
-Status: **Partially done.** The price bug is a confirmed, fixed, unit-
-tested root cause. The zoom report is still open - see below; no code
-change this round, pending the phone reconnecting so a force-stopped
-redeploy can actually be tried.
+Status: **Done**, unit/widget-tested (`flutter analyze` clean at the same
+80-issue baseline; full suite 394/395, same single pre-existing flaky
+failure as every prior round). The zoom fix itself is **live-confirmed by
+the user** ("zooming works now"); everything else is code-reviewed/
+widget-tested but not yet independently re-verified live on a device.
 
-**Reported:** "it still doesn't show it in dollars and the pinch to zoom
-still doesn't zoom the binder just the inside of the binder it should
-zoom the whole thing" - after the Fourteenth round's price-overlay and
-zoom-restructure fixes had already shipped and been live-verified on the
-emulator.
+**Reported, across several messages in sequence:**
+1. "it still doesn't show it in dollars and the pinch to zoom still
+   doesn't zoom the binder just the inside of the binder it should zoom
+   the whole thing" - after the Fourteenth round's price-overlay and
+   zoom-restructure fixes had already shipped and been live-verified on
+   the emulator.
+2. (After a force-stopped redeploy confirmed the zoom fix was real all
+   along - see below): "zooming works now still shows euro prices though
+   and for some reason the bottom row the binder isn't showing the whole
+   cards" and, separately, "also i can't seem to turn the page when
+   zoomed in."
+3. "why do the tcg details keep taking a while to load in doesn't it
+   save it to my phone so it loads quicker next time sometimes the tcg
+   details shows status 500 it should retry and not show that."
 
 ### Price bug: TCGPlayer's `prices` object is keyed by print variant, not flat
 
@@ -1824,11 +1844,99 @@ fresh one started. If the phone had an old (pre-Tenth-round,
 produce *exactly* the reported symptom regardless of how many times the
 APK on disk gets replaced.
 
-**Not yet confirmed - phone was disconnected when this was investigated.**
-Next deploy will explicitly `am force-stop` before installing/launching,
-specifically to rule this out, and the person will be asked to fully
-close the app (swipe it away, not just background it) before reopening
-too, in case background-process survival is part of it either way.
+**Confirmed on redeploy.** The phone reconnected; `adb shell am
+force-stop com.example.pokedex_app` before `install -r` showed the
+*previous* deploy's process (same pid, unmoved, across two prior
+"deploys") was indeed still alive, force-stopping killed it, and the
+freshly-launched pid was different. The user then confirmed live:
+"zooming works now" - the stale-process theory was the real explanation,
+not a code bug in the Fourteenth round's restructure.
+
+### Follow-on bug 1: the price fix itself had a second layer - stale cached data
+
+Confirmed working code (above) didn't mean the *displayed* price changed:
+a card's `TcgCard` row, once cached in Isar under the old, broken
+TCGPlayer-price parsing, is never automatically re-fetched -
+`getCaughtCardsForProfile`/`backfillUncachedCaughtCards`
+(`tcg_card_repository.dart`) only ever fetch a caught card that's
+*missing* from the cache, never one that's already there with stale
+data. A card cached during this session's earlier testing (before the
+parsing fix existed) would keep showing its old, wrong price forever.
+
+**Fix:** a new, deliberately narrow `LocalService.clearTcgCardCache()`
+(wipes only the `tcgCards` table - `CaughtTcgCard`, profiles, and every
+other cached resource are untouched, so no catch progress is lost),
+exposed as `TcgCardRepository.clearCache()` /
+`TcgApiProvider.refreshCardCache()`, and surfaced as a new "Refresh TCG
+Card Data" item in the hamburger menu (`widgets/hamburger_menu.dart`) -
+a genuinely useful affordance beyond this one bug, since real-world TCG
+prices change over time too, not just once after a parsing fix.
+
+### Follow-on bug 2: the bottom pocket row was clipped, not just visually cramped
+
+**Root cause:** `BinderPageGrid`'s 3x3 `GridView` used a *hardcoded*
+`childAspectRatio: 0.7`, independent of how much height the page was
+actually given. The binder's own 16:10 aspect ratio doesn't necessarily
+provide enough height for three rows of 0.7-ratio cells at a given
+width - when it doesn't, `GridView`'s non-scrollable viewport silently
+clips whatever doesn't fit (ordinary Viewport clipping, not a RenderFlex
+overflow, so it never shows the yellow/black warning stripes a test or a
+casual glance would catch). Worked out arithmetically for a typical
+resting binder width (~379px): the grid's three rows needed ~240px,
+the page only had ~201px available - a real, calculable mismatch, not
+just an edge case.
+
+**Fix:** `childAspectRatio` is now computed from the real
+`LayoutBuilder` constraints each page is actually given (`cellWidth /
+cellHeight`, both derived from the available width/height minus
+spacing), so the grid always exactly fills its page at any size the
+binder (zoomed or not) ends up being, instead of hoping a fixed ratio
+happens to match.
+
+### Follow-on bug 3: the nav row became unreachable while zoomed - the only way left to turn a page
+
+**Root cause:** the Fourteenth round's fix for *this exact zoom-growth
+bug* reordered the `Stack` so the binder layer painted (and so
+hit-tested) *after* the chrome (search field + nav row), letting a
+zoomed-in binder visually cover them - but that also meant a
+sufficiently zoomed binder's `GestureDetector` intercepted taps meant for
+the nav buttons before they could reach them. Since one-finger
+drag-to-turn is deliberately disabled while zoomed (to avoid conflicting
+with panning), this left *no* way to turn a page while zoomed in at all.
+
+**Fix:** swapped the paint order - the binder layer now paints first
+(underneath), the chrome (search field + nav row,
+`_buildChrome`/`_buildBinderLayer` in `card_binder_screen.dart`) paints
+last/on top, so it always stays reachable. The trade-off: a sufficiently
+zoomed-in binder now renders *behind* the chrome instead of covering it,
+which reads fine since both have an opaque fill. Also gave the screen's
+outer `Stack` a `Key('binder-screen-stack')` for future test/debug use.
+
+### Follow-on question: TCG tab loading time and an un-retryable 500
+
+**Investigated:** `DefaultTcgCardRepository.getCardsByNationalDexId`
+(the per-Pokemon card *list* lookup, used by the Details screen's TCG
+tab) never checked the local cache at all - every fresh app session
+re-fetched every Pokemon's full card list from the network, even for one
+viewed many times before. Separately, `PokemonDetailsScreen`'s own TCG
+tab had its own, never-fixed copy of the exact bug the binder's picker
+modal already fixed in the Eleventh round: a failed fetch showed "Failed
+to load TCG cards." with the raw error text (sometimes literally
+containing "500") and no way to retry short of leaving and reopening the
+screen.
+
+**Fix:** `getCardsByNationalDexId` now checks
+`LocalService.getCachedTcgCardsByPokemonId` (a new method, querying
+cached cards by `nationalPokedexNumbers` via Isar's existing
+`nationalPokedexNumbersElementEqualTo` filter) before hitting the
+network, caching a fresh result afterward - so a Pokemon's TCG tab loads
+instantly on a repeat visit, even across app restarts, not just within
+one session. `PokemonDetailsScreen` gained the same retry pattern as the
+Eleventh round's picker modal: `_tcgCardsFuture` is no longer `late
+final`, `_fetchTcgCards()` is deferred via `Future.microtask` (fixing a
+latent "setState during build" crash risk that pre-existed but was
+masked whenever the data happened to already be cached), and a "Retry"
+button (`Key('tcg-tab-retry')`) appears alongside the error message.
 
 ### Acceptance criteria
 
@@ -1836,17 +1944,57 @@ too, in case background-process survival is part of it either way.
     `$` for any real card that TCGPlayer actually has pricing data for
     (not just the Cardmarket `€` fallback for every card, which is what
     `_bestTcgplayerPrice` always silently returned before this round).
+65. Pinch-zoom genuinely grows the binder's own on-screen footprint on a
+    real device, not just its content - confirmed live by the user after
+    a force-stopped redeploy.
+66. A deliberate, narrow way exists to force stale cached TCG card data
+    to be re-fetched, without losing which cards are actually caught.
+67. Every pocket in the bottom row of a binder page is fully visible, at
+    any size the binder (zoomed or not) ends up being.
+68. The nav row (and search field) stay reachable - tappable, not
+    covered - at any zoom level, including zoomed in far enough that the
+    binder would otherwise paint over them.
+69. A Pokemon's TCG card list loads from the local cache on a repeat
+    visit, including across app restarts, instead of always re-fetching.
+70. A failed fetch on the Details screen's TCG tab shows a retry option
+    instead of only a dead-end error message.
 
 ### Traceability
 
 | AC | Test |
 |---|---|
 | 64 | `test/utils/tcg_price_util_test.dart` - new test reading a real pokemontcg.io response shape (`base1-4`'s actual `tcgplayer` JSON) end to end, plus a test confirming each variant is tried in turn, not just one fixed one |
+| 65 | **Live-confirmed** by the user ("zooming works now") on a real phone after a force-stopped redeploy - not independently re-verified by this session beyond that confirmation |
+| 66 | `test/services/tcg_card_repository_test.dart` - "TcgCardRepository.clearCache forces a stale cached card to be re-fetched..." - caches a card under one name, confirms the backfill leaves it alone, clears the cache, confirms a fresh backfill picks up new data while the caught *status* survives untouched |
+| 67 | Code review - `BinderPageGrid`'s `LayoutBuilder`-derived `childAspectRatio`; the original bug was itself only ever caught by arithmetic/code review (silent Viewport clipping, no automated-test-visible overflow signal), so no new automated regression test was written specifically for it either - same category of gap as AC18/pre-emption logic earlier in this doc |
+| 68 | Code review - `build()`'s `Stack` lists `_buildBinderLayer(...)` before `_buildChrome(...)`. Two different widget-test attempts (a real two-finger `startGesture` pinch; a structural `stack.children` type check) both hung the *entire test file* on teardown when run as part of the full suite, despite each passing cleanly alone - not root-caused further given the risk of destabilizing every other test in that file; flagged as code-review-only rather than adding a flaky/hanging test |
+| 69 | Code review - `getCachedTcgCardsByPokemonId`'s Isar filter query and its use in `getCardsByNationalDexId`; indirectly exercised by every existing `card_picker_modal_test.dart` test still passing (confirms no regression), but no dedicated "second call skips the network" test was added |
+| 70 | Code review - mirrors the already-tested Eleventh-round pattern in `card_picker_modal.dart` exactly; a dedicated widget test was attempted and the failure path itself worked (confirmed via a direct, non-widget async test of the underlying repository logic), but rendering the *success* half of the retry inside `PokemonDetailsScreen`'s widget tree hit this test binary's own pre-existing, already-documented `flutter_cache_manager`/sqflite gap (see "Visual redesign" section's "test-infrastructure gap" note) - dropped rather than fought further |
 
-**Still outstanding, honestly:** the zoom report itself - root-caused to a
-*plausible* but not yet *confirmed* explanation (a stale running process),
-pending the phone reconnecting for a force-stopped redeploy and the
-person's own re-test.
+**A second test-infrastructure note worth keeping, distinct from the
+cache-manager one above:** `card_picker_modal_test.dart`'s shared
+`pumpHarness` helper needed real rework this round, not just a longer
+delay - adding one more genuine Isar I/O hop
+(`getCachedTcgCardsByPokemonId`) ahead of the network call on a
+previously-network-only path made the *existing* "Eleventh round" retry
+test flake into a hard, reproducible failure (not just occasionally
+flaky) in a way no fixed delay (300ms, 1000ms, two sequential 1000ms
+rounds, with or without a direct provider re-call) resolved reliably.
+Confirmed via a standalone, non-widget async test that the production
+code itself was correct throughout - this was purely about getting
+`flutter_test`'s fake-async zone to let real Isar FFI work resolve before
+an assertion runs. What actually fixed it: polling (nudge real async
+work via `runAsync`, then `settle`, repeat until a state-agnostic
+condition - here, the loading spinner disappearing - is true) instead of
+guessing a fixed delay, *and* moving the tap itself inside the `runAsync`
+block rather than before it. A direct `tcgProvider.getPokemonCards(...)`
+re-call (the pattern already proven for the retry button specifically)
+is explicitly wrong to reuse for the *first* fetch attempt: called before
+a test observes the first failure, it silently counts as a second
+attempt and consumes it, producing a false pass that never actually saw
+the failure UI at all - caught by noticing the expected
+"Error fetching TCG cards" log line was missing, not by the assertion
+itself.
 
 ## Open questions
 
@@ -1882,6 +2030,38 @@ person's own re-test.
   each half, with line count/offset scaled from `rightPageIndex` (left
   stack) and `pageCount - rightPageIndex` (right stack) - not designed or
   built yet, flagging the idea and the rough mechanism only.
+- **Feature TODO, requested live, not yet built (three requests together):**
+  - **Mock pack-opening.** A simulated "open a pack" flow with realistic
+    per-rarity pull odds (real TCG packs have documented-ish slot odds -
+    e.g. a fixed count of commons/uncommons, one guaranteed rare-or-better
+    slot with its own rarity-weighted distribution, and low-probability
+    "hit" slots for secret rares/alt-arts) rather than a uniform random
+    draw from all cards in a set. Needs: a decision on whether pulled
+    cards actually get added to the caught set (making this a genuine
+    alternate catching path) or are purely cosmetic/simulated; a source
+    for real odds (not in the PokeAPI/TCG API responses used today - would
+    need to be hand-modeled per generation/era, since odds have changed
+    across the TCG's history); and a pack-opening animation (not designed).
+  - **Card detail view.** Tapping a card (wherever shown - pocket, cycle
+    view, browse grid) currently only shows its artwork (plus, after the
+    Fourteenth round, a price badge). No way to see its set name, release
+    year, rarity, card number within the set, or other metadata the TCG
+    API already returns per card (`set`, `rarity`, `number`, etc. - see
+    `models/tcg_card.dart`, already parsed and available, just not
+    surfaced anywhere in the binder's own UI - the Pokemon Details
+    screen's TCG tab may already show some of this, not yet checked).
+    Likely a simple detail sheet/dialog, no new data-fetching needed.
+  - **Binder cover customization + a literal "closed" state.** Two related
+    asks: (1) changeable binder cover art/skin (a user-chosen or
+    unlockable visual theme for the leather base, spine, etc. - no
+    existing mechanism for this; would need a settings/customization
+    surface and either a fixed set of built-in skins or user-uploaded
+    art), and (2) an actual closed-book view showing the binder's *outside*
+    (front cover, spine edge) - distinct from today's "always open to a
+    spread" model (`BinderPageTurner` has no closed state at all; the
+    inside-cover widget, `BinderInsideCover`, is the *left* page of the
+    first spread, not a true closed cover). Both are real, undesigned
+    scope - no acceptance criteria, data model, or UI sketched yet.
 - **Page size confirmation at phone width** - see Open questions above.
 - **Drag-gesture automated coverage for the page turn** - the drag handler
   (`BinderPageTurnerState._onDragUpdate`/`_onDragEnd`) is implemented exactly

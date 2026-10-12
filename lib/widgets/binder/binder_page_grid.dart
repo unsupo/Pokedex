@@ -46,20 +46,38 @@ class BinderPageGrid extends StatelessWidget {
         ),
       ),
       padding: const EdgeInsets.all(8),
-      child: GridView.builder(
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          crossAxisSpacing: 5,
-          mainAxisSpacing: 5,
-          childAspectRatio: 0.7,
-        ),
-        itemCount: binderPocketsPerPage,
-        itemBuilder: (context, index) {
-          if (index >= pokemonIds.length) return const SizedBox.shrink();
-          return pocketBuilder(context, pokemonIds[index]);
-        },
-      ),
+      // childAspectRatio computed from the *actual* available space, not a
+      // fixed 0.7 - see "Fifteenth round" in docs/features/card-binder.md.
+      // A hardcoded ratio assumes a 3x3 grid of 0.7-ratio cells always
+      // happens to fit in whatever height this page is actually given,
+      // which isn't guaranteed to match the binder's own 16:10 aspect
+      // ratio - when it doesn't, `GridView`'s non-scrollable viewport
+      // silently clips whatever doesn't fit (no overflow warning, since
+      // that's just normal Viewport clipping behavior, not a RenderFlex
+      // overflow) - reported live as "the bottom row isn't showing the
+      // whole cards." Deriving the ratio from `LayoutBuilder`'s real
+      // constraints instead makes the 3x3 grid always exactly fill its
+      // page, whatever size that page ends up being.
+      child: LayoutBuilder(builder: (context, constraints) {
+        const crossAxisSpacing = 5.0;
+        const mainAxisSpacing = 5.0;
+        final cellWidth = (constraints.maxWidth - 2 * crossAxisSpacing) / 3;
+        final cellHeight = (constraints.maxHeight - 2 * mainAxisSpacing) / 3;
+        return GridView.builder(
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: crossAxisSpacing,
+            mainAxisSpacing: mainAxisSpacing,
+            childAspectRatio: cellWidth / cellHeight,
+          ),
+          itemCount: binderPocketsPerPage,
+          itemBuilder: (context, index) {
+            if (index >= pokemonIds.length) return const SizedBox.shrink();
+            return pocketBuilder(context, pokemonIds[index]);
+          },
+        );
+      }),
     );
   }
 }

@@ -378,4 +378,20 @@ void main() {
     // Still works the same as before: jumps and highlights.
     expect(find.byKey(const Key('binder-pocket-10')), findsOneWidget);
   });
+
+  // "Fifteenth round" in docs/features/card-binder.md (the nav row staying
+  // reachable once pinch-zoom has grown the binder over where it used to
+  // sit) is deliberately NOT covered by a test in this file - two different
+  // attempts (a real two-finger `startGesture` pinch, and a structural
+  // `stack.children` type check reading this screen's `Key
+  // ('binder-screen-stack')`) both made this *entire file* hang
+  // indefinitely on teardown when run as part of the full suite, even
+  // though each passed cleanly in isolation (`--plain-name`) - some
+  // interaction with this file's other tests' real Timers/Isar I/O, not
+  // root-caused further given the risk of destabilizing every other test
+  // here. The fix itself is a one-line structural change (code review:
+  // `build()`'s `Stack` lists `_buildBinderLayer(...)` before
+  // `_buildChrome(...)`, so the chrome paints/hit-tests last/on top) -
+  // flagging as code-review-only instead of adding a flaky or
+  // suite-hanging test.
 }

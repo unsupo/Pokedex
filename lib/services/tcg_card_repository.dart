@@ -26,6 +26,12 @@ abstract class TcgCardRepository {
   /// imageless - [getCaughtCardsForProfile] joins against the cache, so an
   /// uncached caught card doesn't register as owned at all.
   Future<void> backfillUncachedCaughtCards(int profileId);
+
+  /// Wipes cached card display data (see [LocalService.clearTcgCardCache])
+  /// without touching which cards are actually caught - lets a stale cache
+  /// (e.g. from before a parsing fix) be forced to re-fetch. See
+  /// "Fifteenth round" in docs/features/card-binder.md.
+  Future<void> clearCache();
 }
 
 /// Default implementation of [TcgCardRepository] that coordinates fetching from
@@ -37,8 +43,25 @@ class DefaultTcgCardRepository implements TcgCardRepository {
   DefaultTcgCardRepository(this._tcgService, this._localService);
 
   @override
-  Future<List<TcgCard>> getCardsByNationalDexId(int nationalDexId) =>
-      _tcgService.getCardsByNationalDexId(nationalDexId);
+  Future<List<TcgCard>> getCardsByNationalDexId(int nationalDexId) async {
+    // Cache-first - see the doc comment on
+    // LocalService.getCachedTcgCardsByPokemonId for why this didn't
+    // already happen. A cache hit of *any* cards means this Pokemon's
+    // been fetched before; an empty cache is ambiguous (never fetched, vs
+    // genuinely zero cards) and always falls through to a real fetch -
+    // deliberately not distinguished further, since a Pokemon with
+    // genuinely no cards is rare and the cost is just one extra fetch per
+    // *that* Pokemon, not a correctness issue.
+    final cached =
+        await _localService.getCachedTcgCardsByPokemonId(nationalDexId);
+    if (cached.isNotEmpty) return cached;
+
+    final fetched = await _tcgService.getCardsByNationalDexId(nationalDexId);
+    if (fetched.isNotEmpty) {
+      await cacheCards(fetched);
+    }
+    return fetched;
+  }
 
   @override
   Future<void> saveCaughtStatus(
@@ -113,4 +136,7 @@ class DefaultTcgCardRepository implements TcgCardRepository {
       await cacheCards(toCache);
     }
   }
+
+  @override
+  Future<void> clearCache() => _localService.clearTcgCardCache();
 }

@@ -41,8 +41,10 @@ abstract class LocalService {
 
   // region Profiles
   Future<List<Profile>> getAllProfiles();
+
   /// Inserts or renames a profile. Returns its id.
   Future<int> saveProfile(Profile profile);
+
   /// Deletes this profile's caught Pokemon and caught TCG cards. Leaves the
   /// profile itself and every other profile untouched.
   Future<void> resetCaughtDataForProfile(int profileId);
@@ -50,6 +52,7 @@ abstract class LocalService {
 
   // region Caught Pokemon
   Future<List<CaughtPokemon>> getCaughtPokemonForProfile(int profileId);
+
   /// Upserts by (profileId, scopeKey, pokemonId).
   Future<void> saveAllCaughtPokemon(List<CaughtPokemon> caughtPokemon);
   //endregion
@@ -78,7 +81,8 @@ abstract class LocalService {
   Future<EncounterCondition?> getEncounterCondition(int id);
   Future<void> saveEncounterCondition(EncounterCondition encounterCondition);
   Future<EncounterConditionValue?> getEncounterConditionValue(int id);
-  Future<void> saveEncounterConditionValue(EncounterConditionValue encounterConditionValue);
+  Future<void> saveEncounterConditionValue(
+      EncounterConditionValue encounterConditionValue);
   //endregion
 
   // region Evolution
@@ -207,6 +211,7 @@ abstract class LocalService {
   // region TCG Cards
   Future<CaughtTcgCard?> getCaughtTcgCard(int profileId, String cardId);
   Future<void> saveCaughtTcgCard(CaughtTcgCard caughtTcgCard);
+
   /// Upserts by (profileId, cardId), for a batched import.
   Future<void> saveAllCaughtTcgCards(List<CaughtTcgCard> caughtTcgCards);
   Future<List<CaughtTcgCard>> getCaughtTcgCardsForProfile(int profileId);
@@ -217,14 +222,43 @@ abstract class LocalService {
   /// [TcgCard.id]. Upserts by id.
   Future<void> saveAllTcgCards(List<TcgCard> cards);
   Future<List<TcgCard>> getCachedTcgCardsByIds(List<String> ids);
+
+  /// Every cached card whose `nationalPokedexNumbers` includes [pokemonId]
+  /// - what `getCardsByNationalDexId` (`tcg_card_repository.dart`) checks
+  /// before hitting the network, so a Pokemon's TCG tab loads instantly on
+  /// a repeat visit (even across app restarts) instead of re-fetching
+  /// every single time. Reported live: "why do the tcg details keep taking
+  /// a while to load in doesn't it save it to my phone so it loads
+  /// quicker next time" - before this, the per-Pokemon card *list* lookup
+  /// never checked the cache at all (only individual card lookups by id
+  /// did), so only the current app session's in-memory
+  /// `TcgApiProvider._pokemon` map avoided repeat fetches. See "Fifteenth
+  /// round" in docs/features/card-binder.md.
+  Future<List<TcgCard>> getCachedTcgCardsByPokemonId(int pokemonId);
+
+  /// Wipes only the cached [TcgCard] display data (images, prices, set
+  /// info, ...) - deliberately narrower than [clearCache]: leaves
+  /// `CaughtTcgCard` (which card ids each profile owns),
+  /// `BinderCardSelection`, and every other cached resource untouched.
+  /// See "Fifteenth round" in docs/features/card-binder.md: a card cached
+  /// before a parsing fix (e.g. the TCGPlayer price-shape bug) keeps
+  /// showing the old, wrong data forever otherwise, since
+  /// `getCaughtCardsForProfile`/`backfillUncachedCaughtCards` only ever
+  /// re-fetches a caught card that's *missing* from the cache, never one
+  /// that's already there with stale data - this gives a safe way to
+  /// force that re-fetch without losing which cards are actually caught.
+  Future<void> clearTcgCardCache();
   //endregion
 
   // region Card binder selections (see docs/features/card-binder.md)
   Future<BinderCardSelection?> getBinderSelection(int profileId, int pokemonId);
+
   /// Upserts by (profileId, pokemonId).
   Future<void> saveBinderSelection(BinderCardSelection selection);
+
   /// The binder screen needs every selection for a profile at once, not one
   /// Pokemon at a time.
-  Future<List<BinderCardSelection>> getBinderSelectionsForProfile(int profileId);
+  Future<List<BinderCardSelection>> getBinderSelectionsForProfile(
+      int profileId);
   //endregion
 }

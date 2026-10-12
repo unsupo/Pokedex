@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import '../../models/pokeapi/pokemon.dart';
 import '../../utils/binder/binder_pocket.dart';
 import '../../utils/string_utils.dart';
+import '../../utils/tcg_price_util.dart';
+import 'card_price_badge.dart';
 
 /// Renders one binder pocket - the three states from the "Pocket model"
 /// section of docs/features/card-binder.md (plus the data-model's
@@ -35,9 +37,11 @@ class BinderPocketWidget extends StatelessWidget {
           aspectRatio: 0.7,
           child: switch (view) {
             SelectedPocket() => _SleeveCard(
-                imageUrl: view.card.images?.small, label: view.card.name ?? ''),
+                imageUrl: view.card.images?.small,
+                label: view.card.name ?? '',
+                price: estimatedCardPrice(view.card)),
             SelectedPocketMissingData() =>
-              _SleeveCard(imageUrl: null, label: view.cardId),
+              _SleeveCard(imageUrl: null, label: view.cardId, price: null),
             OwnedPocket() => _OwnedIndicator(pokemon: pokemon),
             EmptyPocket() => _EmptyPocket(pokemon: pokemon),
           },
@@ -66,7 +70,12 @@ class _SleeveCard extends StatelessWidget {
   final String? imageUrl;
   final String label;
 
-  const _SleeveCard({required this.imageUrl, required this.label});
+  /// A pre-formatted "$X.XX" (see `estimatedCardPrice`) to overlay via
+  /// [CardPriceBadge], or null for no pricing data / no real card yet.
+  final String? price;
+
+  const _SleeveCard(
+      {required this.imageUrl, required this.label, required this.price});
 
   @override
   Widget build(BuildContext context) {
@@ -141,6 +150,7 @@ class _SleeveCard extends StatelessWidget {
               ),
             ),
           ),
+          CardPriceBadge(price: price),
         ],
       ),
     );

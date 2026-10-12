@@ -6,7 +6,9 @@ import '../../models/tcg_card.dart';
 import '../../services/card_binder_provider.dart';
 import '../../services/pokemon_api_provider.dart';
 import '../../services/tcg_api_provider.dart';
+import '../../utils/tcg_price_util.dart';
 import '../scope/card_caught_toggle.dart';
+import 'card_price_badge.dart';
 
 /// Opens the "tap a pocket" modal (see docs/features/card-binder.md). When
 /// [startInBrowse] is true (pocket state 3: nothing owned), it skips
@@ -214,12 +216,18 @@ class _CycleView extends StatelessWidget {
                     ? const Center(child: Text('No owned cards yet'))
                     : Padding(
                         padding: const EdgeInsets.all(8.0),
-                        child: card.images?.small == null
-                            ? const Icon(Icons.catching_pokemon, size: 96)
-                            : CachedNetworkImage(
-                                imageUrl: card.images!.small!,
-                                fit: BoxFit.contain,
-                              ),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            card.images?.small == null
+                                ? const Icon(Icons.catching_pokemon, size: 96)
+                                : CachedNetworkImage(
+                                    imageUrl: card.images!.small!,
+                                    fit: BoxFit.contain,
+                                  ),
+                            CardPriceBadge(price: estimatedCardPrice(card)),
+                          ],
+                        ),
                       ),
               ),
               IconButton(
@@ -345,12 +353,18 @@ class _BrowseView extends StatelessWidget {
                             width: card.isCaught ? 2 : 1,
                           ),
                         ),
-                        child: card.images?.small == null
-                            ? const Icon(Icons.catching_pokemon)
-                            : CachedNetworkImage(
-                                imageUrl: card.images!.small!,
-                                fit: BoxFit.contain,
-                              ),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            card.images?.small == null
+                                ? const Icon(Icons.catching_pokemon)
+                                : CachedNetworkImage(
+                                    imageUrl: card.images!.small!,
+                                    fit: BoxFit.contain,
+                                  ),
+                            CardPriceBadge(price: estimatedCardPrice(card)),
+                          ],
+                        ),
                       ),
                     );
                   },

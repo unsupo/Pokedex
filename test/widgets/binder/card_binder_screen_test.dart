@@ -345,6 +345,23 @@ void main() {
   });
 
   testWidgets(
+      'Fourteenth round: a page-number label is shown and updates as the '
+      'spread turns', (tester) async {
+    await pumpBinder(tester);
+    // pageCount is 2 for this 10-Pokemon fixture - the first spread shows
+    // page 0 alone (see the AC11 test above), so there's no left page to
+    // report, just "Page 1".
+    expect(find.text('Page 1 of 2'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('binder-next-page')));
+    await settle(tester);
+
+    // The new spread is (page 1 | nothing) - a left page, no right
+    // partner, so "Page 2" (not "Pages 1-2" or "Pages 2-3").
+    expect(find.text('Page 2 of 2'), findsOneWidget);
+  });
+
+  testWidgets(
       'Thirteenth round: the search field is visible immediately, no '
       'toggle needed', (tester) async {
     await pumpBinder(tester);

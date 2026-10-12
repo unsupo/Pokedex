@@ -20,7 +20,8 @@ void main() {
     });
 
     test('page 1 holds dex ids 10-18', () {
-      expect(binderPokemonIdsForPage(ids, 1), [10, 11, 12, 13, 14, 15, 16, 17, 18]);
+      expect(binderPokemonIdsForPage(ids, 1),
+          [10, 11, 12, 13, 14, 15, 16, 17, 18]);
     });
 
     test('a trailing partial page only returns the ids that exist', () {
@@ -49,6 +50,27 @@ void main() {
 
     test('is exact for a multiple of 9', () {
       expect(binderPageCount(List.generate(18, (i) => i + 1)), 2);
+    });
+  });
+
+  group('binderPageLabel', () {
+    test('the first spread (page 0 alone) shows just "Page 1"', () {
+      expect(
+          binderPageLabel(rightPageIndex: 0, pageCount: 114), 'Page 1 of 114');
+    });
+
+    test('a middle spread shows both 1-indexed page numbers as a range', () {
+      // rightPageIndex 2 -> left page 1 (p2), right page 2 (p3).
+      expect(binderPageLabel(rightPageIndex: 2, pageCount: 114),
+          'Pages 2-3 of 114');
+    });
+
+    test(
+        'a spread landing on the last page alone (no right partner) shows '
+        'just that page', () {
+      // pageCount 4 (pages 0-3): rightPageIndex 4 is past the end, leaving
+      // only page 3 (p4) on the left.
+      expect(binderPageLabel(rightPageIndex: 4, pageCount: 4), 'Page 4 of 4');
     });
   });
 }

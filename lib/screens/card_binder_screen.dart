@@ -236,45 +236,67 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Padding(
               padding: const EdgeInsets.all(16),
-              child: Column(
+              // A Stack, not a plain Column - see "Fourteenth round" in
+              // docs/features/card-binder.md: the Tenth round's fix made
+              // pinch-zoom genuinely grow the binder's own layout size
+              // (not just a paint-time transform on fixed-size content),
+              // but a ClipRect sized to only the narrow strip between the
+              // search field and the nav row then clipped that growth
+              // right back down to the binder's resting footprint -
+              // visually indistinguishable from the original "only the
+              // content zooms" bug it was meant to fix (reported live
+              // again: "zoom in and out still only works inside the
+              // binder"). The search field and nav row now sit in a
+              // Column that only *reserves* their layout position; the
+              // binder itself is a separate layer on top of that,
+              // clipped against this whole Stack instead of just the gap
+              // between them, so growth has somewhere real to go -
+              // painting over the search field/nav row once it's zoomed
+              // in far enough, the same way a zoomed photo viewer takes
+              // over its surrounding chrome. At rest (scale 1.0) the
+              // binder's actual footprint is unchanged, so it doesn't
+              // overlap either bar and both stay fully usable.
+              child: Stack(
                 children: [
-                  // Always-visible, not a toggle (see "Thirteenth round" in
-                  // docs/features/card-binder.md) - mirrors the main
-                  // Pokedex list's own search bar (widgets/pokemon_search_bar.dart)
-                  // rather than being hidden behind an icon the user has to
-                  // discover first.
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: TextField(
-                      key: const Key('binder-search-field'),
-                      controller: _searchController,
-                      decoration: InputDecoration(
-                        labelText: 'Search Pokemon',
-                        hintText: 'Name or #...',
-                        filled: true,
-                        fillColor: const Color(0xFFF7F3E9),
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.clear),
-                          onPressed: _searchController.clear,
+                  Column(
+                    children: [
+                      // Always-visible, not a toggle (see "Thirteenth
+                      // round") - mirrors the main Pokedex list's own
+                      // search bar (widgets/pokemon_search_bar.dart)
+                      // rather than being hidden behind an icon the user
+                      // has to discover first.
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: TextField(
+                          key: const Key('binder-search-field'),
+                          controller: _searchController,
+                          decoration: InputDecoration(
+                            labelText: 'Search Pokemon',
+                            hintText: 'Name or #...',
+                            filled: true,
+                            fillColor: const Color(0xFFF7F3E9),
+                            suffixIcon: IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: _searchController.clear,
+                            ),
+                          ),
+                          textInputAction: TextInputAction.search,
+                          onSubmitted: (q) =>
+                              _onSearchSubmitted(q, sortedIds, allPokemon),
                         ),
                       ),
-                      textInputAction: TextInputAction.search,
-                      onSubmitted: (q) =>
-                          _onSearchSubmitted(q, sortedIds, allPokemon),
-                    ),
+                      const Spacer(),
+                      const SizedBox(height: 12),
+                      _NavigationControls(
+                        turnerKey: _turnerKey,
+                        rightPageIndex: _rightPageIndex,
+                        pageCount: pageCount,
+                        canGoBack: _rightPageIndex > 0,
+                        canGoForward: _rightPageIndex + 1 < pageCount,
+                      ),
+                    ],
                   ),
-                  Expanded(
-                    // AC21/AC37 ("Sixth"/"Eighth"/"Tenth" rounds in
-                    // docs/features/card-binder.md): the binder's actual
-                    // *size* (not a paint-time transform on fixed-size
-                    // content) grows with `_scale`, so growth is real
-                    // layout - crisp at any size, not a blurry stretch.
-                    // ClipRect keeps a grown-and-panned binder from
-                    // painting over the AppBar/nav controls; OverflowBox
-                    // lets it actually be bigger than this Expanded's own
-                    // normal bounds in the first place (a plain Center+
-                    // SizedBox-bigger-than-its-parent would just get
-                    // clamped back down).
+                  Positioned.fill(
                     child: ClipRect(
                       child: Center(
                         child: OverflowBox(
@@ -290,9 +312,27 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
                               // redesign") - `_scale` grows both dimensions
                               // from that same resting size, proportionally,
                               // so it only ever grows as a correctly-
-                              // proportioned object.
+                              // proportioned object. Also capped by 60% of
+                              // the screen's *height* (converted through
+                              // the 16:10 ratio to a width bound), not just
+                              // its width - on a normal tall phone the
+                              // width bound always wins so this changes
+                              // nothing, but on an unusually wide/short
+                              // viewport (a tablet, a foldable's near-
+                              // square inner screen, this screen's own
+                              // widget-test harness) an un-height-bounded
+                              // resting size could already be tall enough
+                              // to cover the search field/nav row *before*
+                              // any zoom - found by a widget test failing
+                              // to hit-test the nav button at rest, after
+                              // "Fourteenth round" (below) let growth
+                              // paint outside this screen's narrow middle
+                              // strip instead of clipping it back down.
+                              final size = MediaQuery.sizeOf(context);
                               final restingWidth = math.min(
-                                  MediaQuery.sizeOf(context).width - 32, 820.0);
+                                math.min(size.width - 32, 820.0),
+                                size.height * 0.6 * 16 / 10,
+                              );
                               final width = restingWidth * _scale;
                               final height = width * 10 / 16;
                               return GestureDetector(
@@ -343,12 +383,6 @@ class _CardBinderScreenState extends State<CardBinderScreen> {
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  _NavigationControls(
-                    turnerKey: _turnerKey,
-                    canGoBack: _rightPageIndex > 0,
-                    canGoForward: _rightPageIndex + 1 < pageCount,
                   ),
                 ],
               ),
@@ -429,11 +463,15 @@ class _BinderLeatherBase extends StatelessWidget {
 
 class _NavigationControls extends StatelessWidget {
   final GlobalKey<BinderPageTurnerState> turnerKey;
+  final int rightPageIndex;
+  final int pageCount;
   final bool canGoBack;
   final bool canGoForward;
 
   const _NavigationControls({
     required this.turnerKey,
+    required this.rightPageIndex,
+    required this.pageCount,
     required this.canGoBack,
     required this.canGoForward,
   });
@@ -449,7 +487,25 @@ class _NavigationControls extends StatelessWidget {
           icon: Icons.chevron_left,
           onPressed: canGoBack ? () => turnerKey.currentState?.turn(-1) : null,
         ),
-        const SizedBox(width: 24),
+        // The current spread's page number(s) - see "Fourteenth round" in
+        // docs/features/card-binder.md (reported live: "can you show the
+        // page number of the binder"). Pure presentation; the actual
+        // "which page(s) is this" math is `binderPageLabel`
+        // (utils/binder/binder_layout.dart), so it's covered by a plain
+        // unit test rather than needing a widget test per spread shape.
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            binderPageLabel(
+                rightPageIndex: rightPageIndex, pageCount: pageCount),
+            key: const Key('binder-page-label'),
+            style: const TextStyle(
+              color: Color(0xFF2B2420),
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+        ),
         _NavButton(
           buttonKey: const Key('binder-next-page'),
           tooltip: 'Next page',

@@ -1,6 +1,13 @@
 # Card binder view
 
-Status: **In progress** (2026-10-11) - "Thirteenth round" below adds a
+Status: **In progress** (2026-10-11) - "Fourteenth round" below fixes
+pinch-zoom growth still being clipped back down to the binder's resting
+footprint (the Tenth round's fix never actually worked - it was never
+live-pinch-tested), adds a page-number label, and adds a small price
+overlay wherever a card's artwork is shown - partially live-verified (the
+page label, the price overlay, and the restructure's correctness at rest
+all confirmed on `emulator-5554`; the pinch gesture itself still can't be
+driven by `adb`). "Thirteenth round" adds a
 binder entry point to the main Pokedex list itself (opening at whichever
 Pokemon the list is currently scrolled to) and makes the binder's search
 field always-visible instead of a toggle - **live-verified on
@@ -1634,6 +1641,115 @@ confirming the binder opened on dex #118-126 | #127-135 (the viewport's
 center at the time, Starmie #121, falls in that left page-group); 59 by
 searching "66" and confirming the jump-and-highlight landed on #066
 Machop and the field cleared itself afterward.
+
+## Fourteenth round: zoom still capped to the resting frame, a page-number label, and a price overlay on every card display
+
+Status: **Done**, code-reviewed, unit/widget-tested (`flutter analyze`
+clean at the same 80-issue baseline; full suite 391/392, same single
+pre-existing flaky failure as every prior round), and **live-verified on
+`emulator-5554`** for the page label and the price overlay (both
+confirmed on a real caught card, in both the binder pocket and the card
+picker's cycle view) and for the nav controls staying correctly
+hit-testable at rest after the zoom restructure. The pinch-zoom growth
+itself still can't be driven by `adb` (no multi-touch primitive) - see
+below for what was and wasn't verified.
+
+**Reported:** "zoom in and out still only works inside the binder" (the
+Tenth round's fix, never live-pinch-tested, turned out not to actually
+work); "can you show the page number of the binder"; "can you show a tiny
+price in dollar on wherever the card is displayed as an overlay?"
+
+### Bug: pinch-zoom grew the binder's layout, but a ClipRect still capped what was visible to its resting footprint
+
+**Root cause:** the Tenth round's fix (see above) genuinely grew the
+binder's `SizedBox` - real layout, not a paint transform - but that
+growing box sat inside `ClipRect(child: Center(child: OverflowBox(...)))`
+where the `ClipRect` was sized to the narrow `Expanded` strip between the
+search field and the nav row. Growing the box inside a frame that then
+clips anything bigger than the frame right back down to the frame's own
+size is visually indistinguishable from "only the content zooms" - the
+exact bug this was supposed to fix. This was never caught because the one
+genuinely pinch-dependent claim has never been live-tested by an actual
+two-finger gesture (documented honestly as a gap in every prior round);
+code review and non-gesture widget tests can't see a clipping bug that
+only matters once the clipped content is actually larger than the clip
+rect.
+
+**Fix:** the search field and nav row now sit in a `Column` that only
+*reserves* their layout position (a `Spacer` in place of where the binder
+used to render inline); the binder itself is a separate `Positioned.fill`
+layer on top of that `Column`, inside the same `Stack`, clipped against
+the *whole* available body instead of just the narrow strip. At rest the
+binder's actual footprint is unchanged, so it doesn't reach the search
+field or nav row and both stay fully usable; once zoomed, growth now has
+real room to expand into, painting over them if it grows large enough -
+the same way a zoomed photo viewer takes over its surrounding chrome.
+
+**A second bug found immediately by this restructure's own widget test:**
+nothing had ever bounded the binder's *resting* height, only its resting
+width (`math.min(MediaQuery.sizeOf(context).width - 32, 820.0)`) - on a
+normal tall phone the width bound always wins so this was invisible, but
+on an unusually wide/short viewport (this screen's own widget-test
+harness, at minimum - also plausibly a tablet or a foldable's near-square
+inner screen) an unbounded resting height could already be tall enough to
+cover the nav row *before any zoom at all*, caught by a test failing to
+hit-test the next-page button. Fixed by also capping the resting width by
+60% of the screen's height (converted through the 16:10 ratio): on a tall
+phone this is never the binding constraint (confirmed arithmetically for
+typical phone proportions, not just asserted), so normal usage is
+unaffected; it only kicks in for the unusual wide/short case.
+
+### Feature: a page-number label
+
+`binderPageLabel` (`utils/binder/binder_layout.dart`) is a small pure
+function: `rightPageIndex`/`pageCount` in, a 1-indexed "Page N of M" or
+"Pages N-M of M" string out, handling the two single-page edge cases (the
+first spread's lone right page against the cover; a final spread's lone
+left page if the total count doesn't pair evenly). Rendered as a `Text`
+between the prev/next buttons in `_NavigationControls`.
+
+### Feature: a price overlay on every card display
+
+A new `CardPriceBadge` widget (`widgets/binder/card_price_badge.dart`) -
+a small dark pill in a card image's bottom-right corner, reusing the
+already-existing `estimatedCardPrice` (`utils/tcg_price_util.dart`, USD
+preferred, EUR fallback - already powering the Pokemon Details screen's
+TCG tab) rather than inventing a second pricing/formatting path. Renders
+nothing when a card has no pricing data. Wired into all three places a
+card's actual artwork is shown: a binder pocket's `_SleeveCard`, the card
+picker's cycle view, and its browse grid.
+
+### Acceptance criteria
+
+60. Pinch-zooming the binder grows its actual on-screen footprint, not
+    just the content inside a fixed-size frame - verified by growth no
+    longer being clipped to the narrow strip between the search field and
+    nav row.
+61. The search field and nav row remain fully usable at the binder's
+    resting (unzoomed) size, on both a normal phone and an unusually
+    wide/short viewport.
+62. The current spread's page number(s) are visible near the nav
+    controls and update correctly as the spread turns, including both
+    single-page edge cases (first spread, uneven-count last spread).
+63. Wherever a TCG card's artwork is shown (binder pocket, cycle view,
+    browse grid), a small price overlay appears in dollars (or the
+    existing euro fallback) when pricing data exists, and nothing when it
+    doesn't.
+
+### Traceability
+
+| AC | Test |
+|---|---|
+| 60 | Code review - the `Positioned.fill`/`Stack` restructure; **not** independently live-pinch-tested (no `adb` multi-touch primitive, same limitation as every prior round) |
+| 61 | `test/widgets/binder/card_binder_screen_test.dart`'s existing nav-button tests caught the height-cap bug directly (a hit-test failure) before the fix; re-passing after the fix is the regression check; **live-confirmed** on `emulator-5554` - the nav buttons and search field stayed tappable and visually clear of the binder at rest |
+| 62 | `test/utils/binder/binder_layout_test.dart` - `binderPageLabel` group (all three shapes); `test/widgets/binder/card_binder_screen_test.dart` - "Fourteenth round: a page-number label is shown and updates as the spread turns"; **live-confirmed** ("Page 1 of 114" at rest, "Pages 2-3 of 114" after one turn) |
+| 63 | `test/widgets/binder/card_price_badge_test.dart` (the widget itself); `test/widgets/binder/card_picker_modal_test.dart` - two "Fourteenth round" tests (cycle view, browse grid); **live-confirmed** - a real caught Bulbasaur card's €1.80 (Cardmarket - this particular card had no TCGPlayer/USD price, so the existing fallback applied) showing as an overlay in both the binder pocket and the picker's cycle view |
+
+**Still outstanding, honestly:** a genuine two-finger pinch gesture
+growing the binder on a real device - every prior round's same gap.
+Everything else in this round that's observable without a pinch gesture
+(the restructure's correctness at rest, the page label, the price
+overlay) is live-confirmed.
 
 ## Open questions
 

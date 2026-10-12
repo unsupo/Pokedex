@@ -160,11 +160,13 @@ void main() {
     final ownedCard = TcgCard(
         id: 'picker-modal-card-1',
         name: 'Pikachu V',
-        nationalPokedexNumbers: const [25]);
+        nationalPokedexNumbers: const [25],
+        tcgplayer: Tcgplayer(prices: PriceData(market: 12.5)));
     final uncaughtCard = TcgCard(
         id: 'picker-modal-card-2',
         name: 'Bulbasaur',
-        nationalPokedexNumbers: const [50]);
+        nationalPokedexNumbers: const [50],
+        tcgplayer: Tcgplayer(prices: PriceData(market: 3)));
     tcgProvider = TcgApiProvider(
       _StubTcgService({
         25: [ownedCard],
@@ -322,5 +324,21 @@ void main() {
     expect(find.text('All cards - tap to catch or remove'), findsOneWidget);
     expect(
         find.byKey(const Key('binder-browse-card-flaky-card')), findsOneWidget);
+  });
+
+  testWidgets(
+      'Fourteenth round: a small price overlay shows on the cycle view\'s '
+      r"card ($12.50, set up above)", (tester) async {
+    await pumpHarness(tester, pokemonId: 25, startInBrowse: false);
+
+    expect(find.text(r'$12.50'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Fourteenth round: a small price overlay shows on the browse grid\'s '
+      r'cards ($3.00, set up above)', (tester) async {
+    await pumpHarness(tester, pokemonId: 50, startInBrowse: true);
+
+    expect(find.text(r'$3.00'), findsOneWidget);
   });
 }

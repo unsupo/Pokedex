@@ -80,12 +80,14 @@ void main() {
           id: 'c-cheap',
           name: 'Bulbasaur (common)',
           nationalPokedexNumbers: [1],
-          tcgplayer: Tcgplayer(prices: PriceData(market: 1)));
+          tcgplayer: Tcgplayer(
+              prices: TcgplayerPrices(holofoil: PriceData(market: 1))));
       final pricey = TcgCard(
           id: 'c-pricey',
           name: 'Bulbasaur (rare)',
           nationalPokedexNumbers: [1],
-          tcgplayer: Tcgplayer(prices: PriceData(market: 500)));
+          tcgplayer: Tcgplayer(
+              prices: TcgplayerPrices(holofoil: PriceData(market: 500))));
       repository.caughtCardsByProfile[ash] = [cheap, pricey];
       final provider = await buildProvider();
 

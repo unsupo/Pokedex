@@ -45,7 +45,8 @@ class TcgCard {
   final List<String>? types;
   final List<String>? evolvesTo;
   // final List<String>? evolvesFrom;
-  final List<CardAbility>? abilities; // Consider making a dedicated Ability class
+  final List<CardAbility>?
+      abilities; // Consider making a dedicated Ability class
   final List<String>? rules; // Consider making a dedicated Rule class
   final List<Attack>? attacks;
   final List<WeaknessResistance>? weaknesses;
@@ -262,7 +263,7 @@ class CardImages {
 class Tcgplayer {
   final String? url;
   final String? updatedAt;
-  final PriceData? prices;
+  final TcgplayerPrices? prices;
 
   Tcgplayer({
     this.url,
@@ -274,6 +275,52 @@ class Tcgplayer {
       _$TcgplayerFromJson(json);
 
   Map<String, dynamic> toJson() => _$TcgplayerToJson(this);
+}
+
+/// TCGPlayer's `prices` object is keyed by print variant (`"holofoil"`,
+/// `"normal"`, `"reverseHolofoil"`, ...) - not a single flat price object
+/// the way Cardmarket's is (see [CardMarket]/[PriceData]). Confirmed
+/// against a real response (`GET /v2/cards/base1-4`):
+/// ```json
+/// "tcgplayer": {"prices": {"holofoil": {"low": 499.99, "market": 928.06, ...}}}
+/// ```
+/// Isar's embedded-object model needs a fixed schema, so this can't just
+/// be a `Map<String, PriceData>` - every variant TCGPlayer actually uses
+/// across pokemontcg.io's card data gets its own optional field instead.
+/// Before this, [Tcgplayer.prices] was typed as a single [PriceData], so
+/// `PriceData.fromJson` read top-level keys (`low`, `mid`, `market`, ...)
+/// that don't exist at that level - every field silently parsed to null,
+/// so a card's USD price was *never* actually available, and
+/// `estimatedCardPrice` (utils/tcg_price_util.dart) always fell through to
+/// Cardmarket's EUR price instead - reported live: "it still doesn't show
+/// it in dollars." See "Fifteenth round" in docs/features/card-binder.md.
+@embedded
+@JsonSerializable()
+class TcgplayerPrices {
+  final PriceData? normal;
+  final PriceData? holofoil;
+  final PriceData? reverseHolofoil;
+  @JsonKey(name: '1stEditionNormal')
+  final PriceData? firstEditionNormal;
+  @JsonKey(name: '1stEditionHolofoil')
+  final PriceData? firstEditionHolofoil;
+  final PriceData? unlimited;
+  final PriceData? unlimitedHolofoil;
+
+  TcgplayerPrices({
+    this.normal,
+    this.holofoil,
+    this.reverseHolofoil,
+    this.firstEditionNormal,
+    this.firstEditionHolofoil,
+    this.unlimited,
+    this.unlimitedHolofoil,
+  });
+
+  factory TcgplayerPrices.fromJson(Map<String, dynamic> json) =>
+      _$TcgplayerPricesFromJson(json);
+
+  Map<String, dynamic> toJson() => _$TcgplayerPricesToJson(this);
 }
 
 @embedded // Added @embedded

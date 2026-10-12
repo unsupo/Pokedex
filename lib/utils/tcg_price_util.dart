@@ -33,7 +33,26 @@ double? estimatedCardPriceValue(TcgCard card) =>
 double? _bestTcgplayerPrice(TcgCard card) {
   final prices = card.tcgplayer?.prices;
   if (prices == null) return null;
-  return prices.market ?? prices.mid ?? prices.low ?? prices.high;
+  // TCGPlayer prices are keyed by print variant, not a single flat object
+  // (see the doc comment on TcgplayerPrices) - a card only ever has data
+  // for the variant(s) it's actually printed as, so this tries each in
+  // roughly most-to-least-common order and uses whichever variant
+  // actually has data, rather than assuming one specific variant always
+  // exists.
+  for (final variant in [
+    prices.holofoil,
+    prices.normal,
+    prices.reverseHolofoil,
+    prices.firstEditionHolofoil,
+    prices.firstEditionNormal,
+    prices.unlimitedHolofoil,
+    prices.unlimited,
+  ]) {
+    final best =
+        variant?.market ?? variant?.mid ?? variant?.low ?? variant?.high;
+    if (best != null) return best;
+  }
+  return null;
 }
 
 double? _bestCardmarketPrice(TcgCard card) {

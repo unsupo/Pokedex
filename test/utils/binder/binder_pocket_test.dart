@@ -128,7 +128,8 @@ void main() {
           name: 'Card $id',
           tcgplayer: price == null
               ? null
-              : Tcgplayer(prices: PriceData(market: price)),
+              : Tcgplayer(
+                  prices: TcgplayerPrices(holofoil: PriceData(market: price))),
         );
 
     test('picks the single owned card when there is only one', () {

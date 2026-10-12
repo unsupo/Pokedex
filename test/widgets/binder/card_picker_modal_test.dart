@@ -161,12 +161,14 @@ void main() {
         id: 'picker-modal-card-1',
         name: 'Pikachu V',
         nationalPokedexNumbers: const [25],
-        tcgplayer: Tcgplayer(prices: PriceData(market: 12.5)));
+        tcgplayer: Tcgplayer(
+            prices: TcgplayerPrices(holofoil: PriceData(market: 12.5))));
     final uncaughtCard = TcgCard(
         id: 'picker-modal-card-2',
         name: 'Bulbasaur',
         nationalPokedexNumbers: const [50],
-        tcgplayer: Tcgplayer(prices: PriceData(market: 3)));
+        tcgplayer:
+            Tcgplayer(prices: TcgplayerPrices(holofoil: PriceData(market: 3))));
     tcgProvider = TcgApiProvider(
       _StubTcgService({
         25: [ownedCard],

@@ -171,6 +171,7 @@ const TcgCardSchema = CollectionSchema(
     r'Legalities': LegalitiesSchema,
     r'CardImages': CardImagesSchema,
     r'Tcgplayer': TcgplayerSchema,
+    r'TcgplayerPrices': TcgplayerPricesSchema,
     r'PriceData': PriceDataSchema,
     r'CardMarket': CardMarketSchema
   },
@@ -9581,7 +9582,7 @@ const TcgplayerSchema = Schema(
       id: 0,
       name: r'prices',
       type: IsarType.object,
-      target: r'PriceData',
+      target: r'TcgplayerPrices',
     ),
     r'updatedAt': PropertySchema(
       id: 1,
@@ -9610,8 +9611,8 @@ int _tcgplayerEstimateSize(
     final value = object.prices;
     if (value != null) {
       bytesCount += 3 +
-          PriceDataSchema.estimateSize(
-              value, allOffsets[PriceData]!, allOffsets);
+          TcgplayerPricesSchema.estimateSize(
+              value, allOffsets[TcgplayerPrices]!, allOffsets);
     }
   }
   {
@@ -9635,10 +9636,10 @@ void _tcgplayerSerialize(
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeObject<PriceData>(
+  writer.writeObject<TcgplayerPrices>(
     offsets[0],
     allOffsets,
-    PriceDataSchema.serialize,
+    TcgplayerPricesSchema.serialize,
     object.prices,
   );
   writer.writeString(offsets[1], object.updatedAt);
@@ -9652,9 +9653,9 @@ Tcgplayer _tcgplayerDeserialize(
   Map<Type, List<int>> allOffsets,
 ) {
   final object = Tcgplayer(
-    prices: reader.readObjectOrNull<PriceData>(
+    prices: reader.readObjectOrNull<TcgplayerPrices>(
       offsets[0],
-      PriceDataSchema.deserialize,
+      TcgplayerPricesSchema.deserialize,
       allOffsets,
     ),
     updatedAt: reader.readStringOrNull(offsets[1]),
@@ -9671,9 +9672,9 @@ P _tcgplayerDeserializeProp<P>(
 ) {
   switch (propertyId) {
     case 0:
-      return (reader.readObjectOrNull<PriceData>(
+      return (reader.readObjectOrNull<TcgplayerPrices>(
         offset,
-        PriceDataSchema.deserialize,
+        TcgplayerPricesSchema.deserialize,
         allOffsets,
       )) as P;
     case 1:
@@ -10002,9 +10003,461 @@ extension TcgplayerQueryFilter
 extension TcgplayerQueryObject
     on QueryBuilder<Tcgplayer, Tcgplayer, QFilterCondition> {
   QueryBuilder<Tcgplayer, Tcgplayer, QAfterFilterCondition> prices(
-      FilterQuery<PriceData> q) {
+      FilterQuery<TcgplayerPrices> q) {
     return QueryBuilder.apply(this, (query) {
       return query.object(q, r'prices');
+    });
+  }
+}
+
+// coverage:ignore-file
+// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
+
+const TcgplayerPricesSchema = Schema(
+  name: r'TcgplayerPrices',
+  id: -4971003111876056198,
+  properties: {
+    r'firstEditionHolofoil': PropertySchema(
+      id: 0,
+      name: r'firstEditionHolofoil',
+      type: IsarType.object,
+      target: r'PriceData',
+    ),
+    r'firstEditionNormal': PropertySchema(
+      id: 1,
+      name: r'firstEditionNormal',
+      type: IsarType.object,
+      target: r'PriceData',
+    ),
+    r'holofoil': PropertySchema(
+      id: 2,
+      name: r'holofoil',
+      type: IsarType.object,
+      target: r'PriceData',
+    ),
+    r'normal': PropertySchema(
+      id: 3,
+      name: r'normal',
+      type: IsarType.object,
+      target: r'PriceData',
+    ),
+    r'reverseHolofoil': PropertySchema(
+      id: 4,
+      name: r'reverseHolofoil',
+      type: IsarType.object,
+      target: r'PriceData',
+    ),
+    r'unlimited': PropertySchema(
+      id: 5,
+      name: r'unlimited',
+      type: IsarType.object,
+      target: r'PriceData',
+    ),
+    r'unlimitedHolofoil': PropertySchema(
+      id: 6,
+      name: r'unlimitedHolofoil',
+      type: IsarType.object,
+      target: r'PriceData',
+    )
+  },
+  estimateSize: _tcgplayerPricesEstimateSize,
+  serialize: _tcgplayerPricesSerialize,
+  deserialize: _tcgplayerPricesDeserialize,
+  deserializeProp: _tcgplayerPricesDeserializeProp,
+);
+
+int _tcgplayerPricesEstimateSize(
+  TcgplayerPrices object,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  var bytesCount = offsets.last;
+  {
+    final value = object.firstEditionHolofoil;
+    if (value != null) {
+      bytesCount += 3 +
+          PriceDataSchema.estimateSize(
+              value, allOffsets[PriceData]!, allOffsets);
+    }
+  }
+  {
+    final value = object.firstEditionNormal;
+    if (value != null) {
+      bytesCount += 3 +
+          PriceDataSchema.estimateSize(
+              value, allOffsets[PriceData]!, allOffsets);
+    }
+  }
+  {
+    final value = object.holofoil;
+    if (value != null) {
+      bytesCount += 3 +
+          PriceDataSchema.estimateSize(
+              value, allOffsets[PriceData]!, allOffsets);
+    }
+  }
+  {
+    final value = object.normal;
+    if (value != null) {
+      bytesCount += 3 +
+          PriceDataSchema.estimateSize(
+              value, allOffsets[PriceData]!, allOffsets);
+    }
+  }
+  {
+    final value = object.reverseHolofoil;
+    if (value != null) {
+      bytesCount += 3 +
+          PriceDataSchema.estimateSize(
+              value, allOffsets[PriceData]!, allOffsets);
+    }
+  }
+  {
+    final value = object.unlimited;
+    if (value != null) {
+      bytesCount += 3 +
+          PriceDataSchema.estimateSize(
+              value, allOffsets[PriceData]!, allOffsets);
+    }
+  }
+  {
+    final value = object.unlimitedHolofoil;
+    if (value != null) {
+      bytesCount += 3 +
+          PriceDataSchema.estimateSize(
+              value, allOffsets[PriceData]!, allOffsets);
+    }
+  }
+  return bytesCount;
+}
+
+void _tcgplayerPricesSerialize(
+  TcgplayerPrices object,
+  IsarWriter writer,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  writer.writeObject<PriceData>(
+    offsets[0],
+    allOffsets,
+    PriceDataSchema.serialize,
+    object.firstEditionHolofoil,
+  );
+  writer.writeObject<PriceData>(
+    offsets[1],
+    allOffsets,
+    PriceDataSchema.serialize,
+    object.firstEditionNormal,
+  );
+  writer.writeObject<PriceData>(
+    offsets[2],
+    allOffsets,
+    PriceDataSchema.serialize,
+    object.holofoil,
+  );
+  writer.writeObject<PriceData>(
+    offsets[3],
+    allOffsets,
+    PriceDataSchema.serialize,
+    object.normal,
+  );
+  writer.writeObject<PriceData>(
+    offsets[4],
+    allOffsets,
+    PriceDataSchema.serialize,
+    object.reverseHolofoil,
+  );
+  writer.writeObject<PriceData>(
+    offsets[5],
+    allOffsets,
+    PriceDataSchema.serialize,
+    object.unlimited,
+  );
+  writer.writeObject<PriceData>(
+    offsets[6],
+    allOffsets,
+    PriceDataSchema.serialize,
+    object.unlimitedHolofoil,
+  );
+}
+
+TcgplayerPrices _tcgplayerPricesDeserialize(
+  Id id,
+  IsarReader reader,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  final object = TcgplayerPrices(
+    firstEditionHolofoil: reader.readObjectOrNull<PriceData>(
+      offsets[0],
+      PriceDataSchema.deserialize,
+      allOffsets,
+    ),
+    firstEditionNormal: reader.readObjectOrNull<PriceData>(
+      offsets[1],
+      PriceDataSchema.deserialize,
+      allOffsets,
+    ),
+    holofoil: reader.readObjectOrNull<PriceData>(
+      offsets[2],
+      PriceDataSchema.deserialize,
+      allOffsets,
+    ),
+    normal: reader.readObjectOrNull<PriceData>(
+      offsets[3],
+      PriceDataSchema.deserialize,
+      allOffsets,
+    ),
+    reverseHolofoil: reader.readObjectOrNull<PriceData>(
+      offsets[4],
+      PriceDataSchema.deserialize,
+      allOffsets,
+    ),
+    unlimited: reader.readObjectOrNull<PriceData>(
+      offsets[5],
+      PriceDataSchema.deserialize,
+      allOffsets,
+    ),
+    unlimitedHolofoil: reader.readObjectOrNull<PriceData>(
+      offsets[6],
+      PriceDataSchema.deserialize,
+      allOffsets,
+    ),
+  );
+  return object;
+}
+
+P _tcgplayerPricesDeserializeProp<P>(
+  IsarReader reader,
+  int propertyId,
+  int offset,
+  Map<Type, List<int>> allOffsets,
+) {
+  switch (propertyId) {
+    case 0:
+      return (reader.readObjectOrNull<PriceData>(
+        offset,
+        PriceDataSchema.deserialize,
+        allOffsets,
+      )) as P;
+    case 1:
+      return (reader.readObjectOrNull<PriceData>(
+        offset,
+        PriceDataSchema.deserialize,
+        allOffsets,
+      )) as P;
+    case 2:
+      return (reader.readObjectOrNull<PriceData>(
+        offset,
+        PriceDataSchema.deserialize,
+        allOffsets,
+      )) as P;
+    case 3:
+      return (reader.readObjectOrNull<PriceData>(
+        offset,
+        PriceDataSchema.deserialize,
+        allOffsets,
+      )) as P;
+    case 4:
+      return (reader.readObjectOrNull<PriceData>(
+        offset,
+        PriceDataSchema.deserialize,
+        allOffsets,
+      )) as P;
+    case 5:
+      return (reader.readObjectOrNull<PriceData>(
+        offset,
+        PriceDataSchema.deserialize,
+        allOffsets,
+      )) as P;
+    case 6:
+      return (reader.readObjectOrNull<PriceData>(
+        offset,
+        PriceDataSchema.deserialize,
+        allOffsets,
+      )) as P;
+    default:
+      throw IsarError('Unknown property with id $propertyId');
+  }
+}
+
+extension TcgplayerPricesQueryFilter
+    on QueryBuilder<TcgplayerPrices, TcgplayerPrices, QFilterCondition> {
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      firstEditionHolofoilIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'firstEditionHolofoil',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      firstEditionHolofoilIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'firstEditionHolofoil',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      firstEditionNormalIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'firstEditionNormal',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      firstEditionNormalIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'firstEditionNormal',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      holofoilIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'holofoil',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      holofoilIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'holofoil',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      normalIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'normal',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      normalIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'normal',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      reverseHolofoilIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'reverseHolofoil',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      reverseHolofoilIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'reverseHolofoil',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      unlimitedIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'unlimited',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      unlimitedIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'unlimited',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      unlimitedHolofoilIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'unlimitedHolofoil',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      unlimitedHolofoilIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'unlimitedHolofoil',
+      ));
+    });
+  }
+}
+
+extension TcgplayerPricesQueryObject
+    on QueryBuilder<TcgplayerPrices, TcgplayerPrices, QFilterCondition> {
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      firstEditionHolofoil(FilterQuery<PriceData> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'firstEditionHolofoil');
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      firstEditionNormal(FilterQuery<PriceData> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'firstEditionNormal');
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      holofoil(FilterQuery<PriceData> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'holofoil');
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition> normal(
+      FilterQuery<PriceData> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'normal');
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      reverseHolofoil(FilterQuery<PriceData> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'reverseHolofoil');
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      unlimited(FilterQuery<PriceData> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'unlimited');
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      unlimitedHolofoil(FilterQuery<PriceData> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'unlimitedHolofoil');
     });
   }
 }
@@ -12503,13 +12956,52 @@ Tcgplayer _$TcgplayerFromJson(Map<String, dynamic> json) => Tcgplayer(
       updatedAt: json['updatedAt'] as String?,
       prices: json['prices'] == null
           ? null
-          : PriceData.fromJson(json['prices'] as Map<String, dynamic>),
+          : TcgplayerPrices.fromJson(json['prices'] as Map<String, dynamic>),
     );
 
 Map<String, dynamic> _$TcgplayerToJson(Tcgplayer instance) => <String, dynamic>{
       'url': instance.url,
       'updatedAt': instance.updatedAt,
       'prices': instance.prices,
+    };
+
+TcgplayerPrices _$TcgplayerPricesFromJson(Map<String, dynamic> json) =>
+    TcgplayerPrices(
+      normal: json['normal'] == null
+          ? null
+          : PriceData.fromJson(json['normal'] as Map<String, dynamic>),
+      holofoil: json['holofoil'] == null
+          ? null
+          : PriceData.fromJson(json['holofoil'] as Map<String, dynamic>),
+      reverseHolofoil: json['reverseHolofoil'] == null
+          ? null
+          : PriceData.fromJson(json['reverseHolofoil'] as Map<String, dynamic>),
+      firstEditionNormal: json['1stEditionNormal'] == null
+          ? null
+          : PriceData.fromJson(
+              json['1stEditionNormal'] as Map<String, dynamic>),
+      firstEditionHolofoil: json['1stEditionHolofoil'] == null
+          ? null
+          : PriceData.fromJson(
+              json['1stEditionHolofoil'] as Map<String, dynamic>),
+      unlimited: json['unlimited'] == null
+          ? null
+          : PriceData.fromJson(json['unlimited'] as Map<String, dynamic>),
+      unlimitedHolofoil: json['unlimitedHolofoil'] == null
+          ? null
+          : PriceData.fromJson(
+              json['unlimitedHolofoil'] as Map<String, dynamic>),
+    );
+
+Map<String, dynamic> _$TcgplayerPricesToJson(TcgplayerPrices instance) =>
+    <String, dynamic>{
+      'normal': instance.normal,
+      'holofoil': instance.holofoil,
+      'reverseHolofoil': instance.reverseHolofoil,
+      '1stEditionNormal': instance.firstEditionNormal,
+      '1stEditionHolofoil': instance.firstEditionHolofoil,
+      'unlimited': instance.unlimited,
+      'unlimitedHolofoil': instance.unlimitedHolofoil,
     };
 
 CardMarket _$CardMarketFromJson(Map<String, dynamic> json) => CardMarket(

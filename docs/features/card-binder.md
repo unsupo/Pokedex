@@ -1751,6 +1751,103 @@ Everything else in this round that's observable without a pinch gesture
 (the restructure's correctness at rest, the page label, the price
 overlay) is live-confirmed.
 
+## Fifteenth round: the dollar price was never actually there, and the zoom fix may never have reached the phone
+
+Status: **Partially done.** The price bug is a confirmed, fixed, unit-
+tested root cause. The zoom report is still open - see below; no code
+change this round, pending the phone reconnecting so a force-stopped
+redeploy can actually be tried.
+
+**Reported:** "it still doesn't show it in dollars and the pinch to zoom
+still doesn't zoom the binder just the inside of the binder it should
+zoom the whole thing" - after the Fourteenth round's price-overlay and
+zoom-restructure fixes had already shipped and been live-verified on the
+emulator.
+
+### Price bug: TCGPlayer's `prices` object is keyed by print variant, not flat
+
+**Root cause, confirmed against a real response** (`GET
+/v2/cards/base1-4`):
+```json
+"tcgplayer": {"prices": {"holofoil": {"low": 499.99, "market": 928.06, ...}}}
+```
+`Tcgplayer.prices` was typed as a single [PriceData] - the same flat
+shape Cardmarket's `prices` genuinely has. `PriceData.fromJson` read
+top-level keys (`low`, `market`, ...) that don't exist at that level for
+TCGPlayer (they're nested one more level under a variant key like
+`"holofoil"`) - every field silently parsed to null, so
+`estimatedCardPrice` (`utils/tcg_price_util.dart`) never had a real USD
+number to work with and always fell through to Cardmarket's EUR price.
+This had been true since whenever the `tcgplayer` field was first added -
+not a regression from the Fourteenth round's own work, just the first
+time anyone actually looked for a `$` price and didn't find one.
+
+**Fix:** a new embedded `TcgplayerPrices` class
+(`models/tcg_card.dart`) with one optional [PriceData] field per variant
+TCGPlayer actually uses (`normal`, `holofoil`, `reverseHolofoil`, the two
+`1stEdition*` variants, `unlimited`, `unlimitedHolofoil`) - Isar's
+embedded-object model needs a fixed schema, so this can't just be a
+`Map<String, PriceData>` the way the raw JSON is shaped.
+`_bestTcgplayerPrice` now tries each variant in roughly most-to-least-
+common order and uses whichever one actually has data, instead of
+assuming a single fixed variant always exists. Regenerated
+`tcg_card.g.dart` via `build_runner`.
+
+### Zoom: still "frame stays fixed, content grows" after the Fourteenth round's fix
+
+**Investigated, live, via two targeted questions** rather than guessing a
+third time blindly: confirmed the symptom is specifically "the dark
+leather frame never changes size or position, only the cards/pockets
+inside appear to scale up" - and confirmed it happens identically folded
+and unfolded, ruling out the Fourteenth round's own height-cap/aspect-
+ratio reasoning as the culprit (that would show up differently on the
+fold's near-square inner screen than on its narrow cover screen; it
+didn't).
+
+That exact symptom - frame fixed, content scaling - is what the *original*
+`InteractiveViewer`-based implementation looked like, from well before the
+Tenth round removed it. Re-reading the current `card_binder_screen.dart`
+confirms the committed code is correct: `_scale` directly drives the
+`SizedBox`'s own `width`/`height` (the leather frame's container), so if
+the frame genuinely isn't growing while *only* its children's rendering
+changes, `_scale` itself isn't the thing responding to the gesture at all
+- nothing else in this tree has an independent scale/transform that could
+produce that split. The most likely explanation found so far: **the app
+process on the phone was never actually killed and restarted with the
+new code.** Every deploy this session used `adb install -r` + `monkey -c
+LAUNCHER` without first force-stopping the running process - Android
+usually kills a package's process on reinstall, but not guaranteed in
+every circumstance, and `monkey`'s `LAUNCHER` intent just brings whatever
+process is already running to the foreground rather than confirming a
+fresh one started. If the phone had an old (pre-Tenth-round,
+`InteractiveViewer`-based) process still alive underneath, it would
+produce *exactly* the reported symptom regardless of how many times the
+APK on disk gets replaced.
+
+**Not yet confirmed - phone was disconnected when this was investigated.**
+Next deploy will explicitly `am force-stop` before installing/launching,
+specifically to rule this out, and the person will be asked to fully
+close the app (swipe it away, not just background it) before reopening
+too, in case background-process survival is part of it either way.
+
+### Acceptance criteria
+
+64. A card's price overlay (binder pocket, cycle view, browse grid) shows
+    `$` for any real card that TCGPlayer actually has pricing data for
+    (not just the Cardmarket `€` fallback for every card, which is what
+    `_bestTcgplayerPrice` always silently returned before this round).
+
+### Traceability
+
+| AC | Test |
+|---|---|
+| 64 | `test/utils/tcg_price_util_test.dart` - new test reading a real pokemontcg.io response shape (`base1-4`'s actual `tcgplayer` JSON) end to end, plus a test confirming each variant is tried in turn, not just one fixed one |
+
+**Still outstanding, honestly:** the zoom report itself - root-caused to a
+*plausible* but not yet *confirmed* explanation (a stale running process),
+pending the phone reconnecting for a force-stopped redeploy and the
+person's own re-test.
+
 ## Open questions
 
 - Exact page size (9/page, 3x3, assumed) - confirm it actually reads well at

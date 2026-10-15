@@ -28,7 +28,7 @@ class TypePill extends StatelessWidget {
   Color _getTypeColor(String type) {
     switch (type.toLowerCase()) {
       case 'normal':
-        return Colors.brown[400]!;
+        return Colors.grey;
       case 'fire':
         return Colors.red;
       case 'water':
@@ -44,7 +44,7 @@ class TypePill extends StatelessWidget {
       case 'poison':
         return Colors.purple;
       case 'ground':
-        return Colors.brown[200]!;
+        return Colors.brown[400]!;
       case 'flying':
         return Colors.indigo[200]!;
       case 'psychic':

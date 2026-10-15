@@ -84,6 +84,10 @@ is the one locally-owned (non-PokeAPI) model, tracking per-pokémon caught statu
 - **`utils/type_utils.dart`** / **`data/type_chart.dart`** — type effectiveness lookups, used by
   `widgets/pokemon_details/type_chart.dart`.
 - **`utils/stats_util.dart`**, **`utils/string_utils.dart`** — stat calculations and formatting helpers.
+- **`utils/search_query_parser.dart`** — splits the search bar's text into a fuzzy free-text term and `stage:`
+  evolution-stage modifiers (see `docs/features/search-fuzzy-and-stage.md`). **`utils/evolution_stage.dart`** —
+  walks an `EvolutionChain` to find a Pokemon's 1-based stage depth; both are pure and consumed by
+  `PokemonApiProvider.filterPokemon` and `widgets/pokemon_search_bar.dart`.
 
 ### UI
 

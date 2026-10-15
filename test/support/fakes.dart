@@ -1,0 +1,159 @@
+import 'dart:async';
+
+import 'package:pokedex_app/models/binder_card_selection.dart';
+import 'package:pokedex_app/models/profile.dart';
+import 'package:pokedex_app/models/tcg_card.dart';
+import 'package:pokedex_app/services/binder_repository.dart';
+import 'package:pokedex_app/services/io/csv_transport.dart';
+import 'package:pokedex_app/services/profiles/active_profile_store.dart';
+import 'package:pokedex_app/services/profiles/profile_repository.dart';
+import 'package:pokedex_app/services/profiles/scope_store.dart';
+
+/// In-memory [ProfileRepository]. Records which profiles were reset so tests
+/// can assert that only the intended profile was touched.
+class InMemoryProfileRepository implements ProfileRepository {
+  InMemoryProfileRepository([List<String> names = const []]) {
+    for (final name in names) {
+      profiles.add(Profile(id: _nextId++, name: name));
+    }
+  }
+
+  final List<Profile> profiles = [];
+  final List<int> resetProfileIds = [];
+  int _nextId = 1;
+
+  @override
+  Future<List<Profile>> loadProfiles() async => List.of(profiles);
+
+  @override
+  Future<Profile> addProfile(String name) async {
+    final profile = Profile(id: _nextId++, name: name);
+    profiles.add(profile);
+    return profile;
+  }
+
+  @override
+  Future<void> renameProfile(int profileId, String name) async {
+    profiles.firstWhere((p) => p.id == profileId).name = name;
+  }
+
+  @override
+  Future<void> resetProfile(int profileId) async {
+    resetProfileIds.add(profileId);
+  }
+}
+
+/// In-memory [ActiveProfileStore] that remembers the last value written.
+class InMemoryActiveProfileStore implements ActiveProfileStore {
+  InMemoryActiveProfileStore([this.stored]);
+
+  int? stored;
+
+  @override
+  Future<int?> read() async => stored;
+
+  @override
+  Future<void> write(int profileId) async => stored = profileId;
+}
+
+/// Stands in for "the cloud" (or a local file, or Drive) behind [CsvTransport]
+/// by holding the exported bytes in memory.
+class InMemoryCsvTransport implements CsvTransport {
+  String? storedCsv;
+  bool cancelSave = false;
+  bool cancelLoad = false;
+
+  @override
+  Future<bool> save(String suggestedFileName, String csvContent) async {
+    if (cancelSave) return false;
+    storedCsv = csvContent;
+    return true;
+  }
+
+  @override
+  Future<String?> load() async => cancelLoad ? null : storedCsv;
+}
+
+/// Polls until [condition] holds. Provider reloads run asynchronously against
+/// a real database after a profile switch, so tests wait for the result rather
+/// than assuming it has already landed.
+Future<void> waitUntil(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      throw TimeoutException('condition was not met within $timeout');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+}
+
+/// In-memory [ScopeStore], keyed by profile id.
+class InMemoryScopeStore implements ScopeStore {
+  final Map<int, String> stored = {};
+
+  @override
+  Future<String?> read(int profileId) async => stored[profileId];
+
+  @override
+  Future<void> write(int profileId, String scopeKey) async =>
+      stored[profileId] = scopeKey;
+}
+
+/// In-memory [BinderRepository]. Seed [caughtCardsByProfile] with each
+/// profile's owned cards (their display data doubles as "cached"); omit an
+/// id from there while still "owning" it (see [markOwnedWithoutData]) to
+/// simulate the no-cached-data edge case.
+class InMemoryBinderRepository implements BinderRepository {
+  final Map<int, List<TcgCard>> caughtCardsByProfile = {};
+  final Map<int, Set<String>> _extraOwnedIdsByProfile = {};
+  final Map<int, List<BinderCardSelection>> _selectionsByProfile = {};
+
+  /// How many times [backfillUncachedCaughtCards] has been called - lets a
+  /// test confirm [CardBinderProvider.load] actually calls it, without this
+  /// fake needing to simulate a real network fetch (that's covered at the
+  /// repository level instead, in tcg_card_repository_test.dart).
+  int backfillCallCount = 0;
+
+  /// Marks [cardId] as owned by [profileId] without giving it cached
+  /// [TcgCard] data - the "selected but not cached yet" edge case.
+  void markOwnedWithoutData(int profileId, String cardId) {
+    _extraOwnedIdsByProfile.putIfAbsent(profileId, () => {}).add(cardId);
+  }
+
+  @override
+  Future<List<TcgCard>> getCaughtCardsForProfile(int profileId) async =>
+      List.of(caughtCardsByProfile[profileId] ?? const []);
+
+  @override
+  Future<Set<String>> getCaughtCardIdsForProfile(int profileId) async => {
+        ...(caughtCardsByProfile[profileId] ?? const []).map((c) => c.id!),
+        ...(_extraOwnedIdsByProfile[profileId] ?? const {}),
+      };
+
+  @override
+  Future<List<BinderCardSelection>> getSelectionsForProfile(
+          int profileId) async =>
+      List.of(_selectionsByProfile[profileId] ?? const []);
+
+  @override
+  Future<void> setSelection(int profileId, int pokemonId, String cardId) async {
+    final selections = _selectionsByProfile.putIfAbsent(profileId, () => []);
+    selections.removeWhere((s) => s.pokemonId == pokemonId);
+    selections.add(BinderCardSelection(
+      profileId: profileId,
+      pokemonId: pokemonId,
+      selectedCardId: cardId,
+    ));
+  }
+
+  // No-op - this fake's "caught" data already doubles as "cached" (see the
+  // class doc), so there's nothing to simulate backfilling; it only tracks
+  // that it was called.
+  @override
+  Future<void> backfillUncachedCaughtCards(int profileId) async {
+    backfillCallCount++;
+  }
+}

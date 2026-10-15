@@ -20,8 +20,10 @@ import '../../models/pokeapi/pokemon_details.dart';
 import '../../models/pokeapi/pokemon_species.dart';
 import '../../models/pokeapi/stat.dart';
 import '../../models/pokeapi/utility.dart';
+import '../../models/binder_card_selection.dart';
+import '../../models/caught_pokemon.dart';
+import '../../models/profile.dart';
 import '../../models/tcg_card.dart';
-import '../../models/user_data.dart';
 
 abstract class LocalService {
   Future<void> init(); // Initialize the database
@@ -37,11 +39,23 @@ abstract class LocalService {
 
   Future<void> clearCache();
 
-  Future<List<UserData>> getAllUserData();
+  // region Profiles
+  Future<List<Profile>> getAllProfiles();
 
-  Future<void> saveUserData(UserData? userData);
+  /// Inserts or renames a profile. Returns its id.
+  Future<int> saveProfile(Profile profile);
 
-  Future<void> saveAllUserData(List<UserData> allUserData);
+  /// Deletes this profile's caught Pokemon and caught TCG cards. Leaves the
+  /// profile itself and every other profile untouched.
+  Future<void> resetCaughtDataForProfile(int profileId);
+  //endregion
+
+  // region Caught Pokemon
+  Future<List<CaughtPokemon>> getCaughtPokemonForProfile(int profileId);
+
+  /// Upserts by (profileId, scopeKey, pokemonId).
+  Future<void> saveAllCaughtPokemon(List<CaughtPokemon> caughtPokemon);
+  //endregion
   Future<void> savePokemonSpecies(PokemonSpecies pokemonSpecies);
   Future<void> saveAllPokemonSpecies(List<PokemonSpecies?> allPokemonSpecies);
   Future<PokemonSpecies?> getPokemonSpecies(int id);
@@ -67,7 +81,8 @@ abstract class LocalService {
   Future<EncounterCondition?> getEncounterCondition(int id);
   Future<void> saveEncounterCondition(EncounterCondition encounterCondition);
   Future<EncounterConditionValue?> getEncounterConditionValue(int id);
-  Future<void> saveEncounterConditionValue(EncounterConditionValue encounterConditionValue);
+  Future<void> saveEncounterConditionValue(
+      EncounterConditionValue encounterConditionValue);
   //endregion
 
   // region Evolution
@@ -194,8 +209,43 @@ abstract class LocalService {
   //endregion
 
   // region TCG Cards
-  Future<CaughtTcgCard?> getCaughtTcgCard(String cardId);
+  Future<CaughtTcgCard?> getCaughtTcgCard(int profileId, String cardId);
   Future<void> saveCaughtTcgCard(CaughtTcgCard caughtTcgCard);
-  Future<List<CaughtTcgCard>> getAllCaughtTcgCards();
+
+  /// Upserts by (profileId, cardId), for a batched import.
+  Future<void> saveAllCaughtTcgCards(List<CaughtTcgCard> caughtTcgCards);
+  Future<List<CaughtTcgCard>> getCaughtTcgCardsForProfile(int profileId);
+  //endregion
+
+  // region TCG Card cache (display data - see docs/features/card-binder.md)
+  /// Write-through cache of full card data (image, name, ...), keyed by
+  /// [TcgCard.id]. Upserts by id.
+  Future<void> saveAllTcgCards(List<TcgCard> cards);
+  Future<List<TcgCard>> getCachedTcgCardsByIds(List<String> ids);
+
+  /// Wipes only the cached [TcgCard] display data (images, prices, set
+  /// info, ...) - deliberately narrower than [clearCache]: leaves
+  /// `CaughtTcgCard` (which card ids each profile owns),
+  /// `BinderCardSelection`, and every other cached resource untouched.
+  /// See "Fifteenth round" in docs/features/card-binder.md: a card cached
+  /// before a parsing fix (e.g. the TCGPlayer price-shape bug) keeps
+  /// showing the old, wrong data forever otherwise, since
+  /// `getCaughtCardsForProfile`/`backfillUncachedCaughtCards` only ever
+  /// re-fetches a caught card that's *missing* from the cache, never one
+  /// that's already there with stale data - this gives a safe way to
+  /// force that re-fetch without losing which cards are actually caught.
+  Future<void> clearTcgCardCache();
+  //endregion
+
+  // region Card binder selections (see docs/features/card-binder.md)
+  Future<BinderCardSelection?> getBinderSelection(int profileId, int pokemonId);
+
+  /// Upserts by (profileId, pokemonId).
+  Future<void> saveBinderSelection(BinderCardSelection selection);
+
+  /// The binder screen needs every selection for a profile at once, not one
+  /// Pokemon at a time.
+  Future<List<BinderCardSelection>> getBinderSelectionsForProfile(
+      int profileId);
   //endregion
 }

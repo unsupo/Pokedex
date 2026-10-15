@@ -1,14 +1,13 @@
-import '../../models/user_data.dart';
-import '../local/local_service.dart';
+import 'package:pokedex_app/models/caught_pokemon.dart';
+import 'package:pokedex_app/services/local/local_service.dart';
 
 /// The minimal read/write capability [CaughtPokemonTransferService] needs.
-///
-/// Deliberately narrower than [LocalService] (which has ~35 unrelated
-/// resource types) so the transfer service — and its tests — only depend on
-/// what caught-pokemon export/import actually touches.
 abstract class CaughtPokemonRepository {
-  Future<List<UserData>> loadAll();
-  Future<void> saveAll(List<UserData> data);
+  /// Every row for one profile.
+  Future<List<CaughtPokemon>> loadAll(int profileId);
+
+  /// Upserts rows by (profileId, scopeKey, pokemonId).
+  Future<void> saveAll(List<CaughtPokemon> rows);
 }
 
 class LocalServiceCaughtPokemonRepository implements CaughtPokemonRepository {
@@ -17,8 +16,10 @@ class LocalServiceCaughtPokemonRepository implements CaughtPokemonRepository {
   LocalServiceCaughtPokemonRepository(this._localService);
 
   @override
-  Future<List<UserData>> loadAll() => _localService.getAllUserData();
+  Future<List<CaughtPokemon>> loadAll(int profileId) =>
+      _localService.getCaughtPokemonForProfile(profileId);
 
   @override
-  Future<void> saveAll(List<UserData> data) => _localService.saveAllUserData(data);
+  Future<void> saveAll(List<CaughtPokemon> rows) =>
+      _localService.saveAllCaughtPokemon(rows);
 }

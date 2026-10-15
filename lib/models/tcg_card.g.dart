@@ -20,7 +20,8 @@ const TcgCardSchema = CollectionSchema(
     r'abilities': PropertySchema(
       id: 0,
       name: r'abilities',
-      type: IsarType.stringList,
+      type: IsarType.objectList,
+      target: r'CardAbility',
     ),
     r'artist': PropertySchema(
       id: 1,
@@ -146,15 +147,31 @@ const TcgCardSchema = CollectionSchema(
   deserialize: _tcgCardDeserialize,
   deserializeProp: _tcgCardDeserializeProp,
   idName: r'isarId',
-  indexes: {},
+  indexes: {
+    r'id': IndexSchema(
+      id: -3268401673993471357,
+      name: r'id',
+      unique: true,
+      replace: true,
+      properties: [
+        IndexPropertySchema(
+          name: r'id',
+          type: IndexType.hash,
+          caseSensitive: true,
+        )
+      ],
+    )
+  },
   links: {},
   embeddedSchemas: {
+    r'CardAbility': CardAbilitySchema,
     r'Attack': AttackSchema,
     r'WeaknessResistance': WeaknessResistanceSchema,
     r'SetData': SetDataSchema,
     r'Legalities': LegalitiesSchema,
     r'CardImages': CardImagesSchema,
     r'Tcgplayer': TcgplayerSchema,
+    r'TcgplayerPrices': TcgplayerPricesSchema,
     r'PriceData': PriceDataSchema,
     r'CardMarket': CardMarketSchema
   },
@@ -175,9 +192,11 @@ int _tcgCardEstimateSize(
     if (list != null) {
       bytesCount += 3 + list.length * 3;
       {
+        final offsets = allOffsets[CardAbility]!;
         for (var i = 0; i < list.length; i++) {
           final value = list[i];
-          bytesCount += value.length * 3;
+          bytesCount +=
+              CardAbilitySchema.estimateSize(value, offsets, allOffsets);
         }
       }
     }
@@ -379,7 +398,12 @@ void _tcgCardSerialize(
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeStringList(offsets[0], object.abilities);
+  writer.writeObjectList<CardAbility>(
+    offsets[0],
+    allOffsets,
+    CardAbilitySchema.serialize,
+    object.abilities,
+  );
   writer.writeString(offsets[1], object.artist);
   writer.writeObjectList<Attack>(
     offsets[2],
@@ -451,7 +475,12 @@ TcgCard _tcgCardDeserialize(
   Map<Type, List<int>> allOffsets,
 ) {
   final object = TcgCard(
-    abilities: reader.readStringList(offsets[0]),
+    abilities: reader.readObjectList<CardAbility>(
+      offsets[0],
+      CardAbilitySchema.deserialize,
+      allOffsets,
+      CardAbility(),
+    ),
     artist: reader.readStringOrNull(offsets[1]),
     attacks: reader.readObjectList<Attack>(
       offsets[2],
@@ -510,6 +539,7 @@ TcgCard _tcgCardDeserialize(
       WeaknessResistance(),
     ),
   );
+  object.isarId = id;
   return object;
 }
 
@@ -521,7 +551,12 @@ P _tcgCardDeserializeProp<P>(
 ) {
   switch (propertyId) {
     case 0:
-      return (reader.readStringList(offset)) as P;
+      return (reader.readObjectList<CardAbility>(
+        offset,
+        CardAbilitySchema.deserialize,
+        allOffsets,
+        CardAbility(),
+      )) as P;
     case 1:
       return (reader.readStringOrNull(offset)) as P;
     case 2:
@@ -607,14 +642,70 @@ P _tcgCardDeserializeProp<P>(
 }
 
 Id _tcgCardGetId(TcgCard object) {
-  return object.isarId ?? Isar.autoIncrement;
+  return object.isarId;
 }
 
 List<IsarLinkBase<dynamic>> _tcgCardGetLinks(TcgCard object) {
   return [];
 }
 
-void _tcgCardAttach(IsarCollection<dynamic> col, Id id, TcgCard object) {}
+void _tcgCardAttach(IsarCollection<dynamic> col, Id id, TcgCard object) {
+  object.isarId = id;
+}
+
+extension TcgCardByIndex on IsarCollection<TcgCard> {
+  Future<TcgCard?> getById(String? id) {
+    return getByIndex(r'id', [id]);
+  }
+
+  TcgCard? getByIdSync(String? id) {
+    return getByIndexSync(r'id', [id]);
+  }
+
+  Future<bool> deleteById(String? id) {
+    return deleteByIndex(r'id', [id]);
+  }
+
+  bool deleteByIdSync(String? id) {
+    return deleteByIndexSync(r'id', [id]);
+  }
+
+  Future<List<TcgCard?>> getAllById(List<String?> idValues) {
+    final values = idValues.map((e) => [e]).toList();
+    return getAllByIndex(r'id', values);
+  }
+
+  List<TcgCard?> getAllByIdSync(List<String?> idValues) {
+    final values = idValues.map((e) => [e]).toList();
+    return getAllByIndexSync(r'id', values);
+  }
+
+  Future<int> deleteAllById(List<String?> idValues) {
+    final values = idValues.map((e) => [e]).toList();
+    return deleteAllByIndex(r'id', values);
+  }
+
+  int deleteAllByIdSync(List<String?> idValues) {
+    final values = idValues.map((e) => [e]).toList();
+    return deleteAllByIndexSync(r'id', values);
+  }
+
+  Future<Id> putById(TcgCard object) {
+    return putByIndex(r'id', object);
+  }
+
+  Id putByIdSync(TcgCard object, {bool saveLinks = true}) {
+    return putByIndexSync(r'id', object, saveLinks: saveLinks);
+  }
+
+  Future<List<Id>> putAllById(List<TcgCard> objects) {
+    return putAllByIndex(r'id', objects);
+  }
+
+  List<Id> putAllByIdSync(List<TcgCard> objects, {bool saveLinks = true}) {
+    return putAllByIndexSync(r'id', objects, saveLinks: saveLinks);
+  }
+}
 
 extension TcgCardQueryWhereSort on QueryBuilder<TcgCard, TcgCard, QWhere> {
   QueryBuilder<TcgCard, TcgCard, QAfterWhere> anyIsarId() {
@@ -690,6 +781,69 @@ extension TcgCardQueryWhere on QueryBuilder<TcgCard, TcgCard, QWhereClause> {
       ));
     });
   }
+
+  QueryBuilder<TcgCard, TcgCard, QAfterWhereClause> idIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IndexWhereClause.equalTo(
+        indexName: r'id',
+        value: [null],
+      ));
+    });
+  }
+
+  QueryBuilder<TcgCard, TcgCard, QAfterWhereClause> idIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IndexWhereClause.between(
+        indexName: r'id',
+        lower: [null],
+        includeLower: false,
+        upper: [],
+      ));
+    });
+  }
+
+  QueryBuilder<TcgCard, TcgCard, QAfterWhereClause> idEqualTo(String? id) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IndexWhereClause.equalTo(
+        indexName: r'id',
+        value: [id],
+      ));
+    });
+  }
+
+  QueryBuilder<TcgCard, TcgCard, QAfterWhereClause> idNotEqualTo(String? id) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'id',
+              lower: [],
+              upper: [id],
+              includeUpper: false,
+            ))
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'id',
+              lower: [id],
+              includeLower: false,
+              upper: [],
+            ));
+      } else {
+        return query
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'id',
+              lower: [id],
+              includeLower: false,
+              upper: [],
+            ))
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'id',
+              lower: [],
+              upper: [id],
+              includeUpper: false,
+            ));
+      }
+    });
+  }
 }
 
 extension TcgCardQueryFilter
@@ -706,141 +860,6 @@ extension TcgCardQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(const FilterCondition.isNotNull(
         property: r'abilities',
-      ));
-    });
-  }
-
-  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> abilitiesElementEqualTo(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'abilities',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition>
-      abilitiesElementGreaterThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.greaterThan(
-        include: include,
-        property: r'abilities',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition>
-      abilitiesElementLessThan(
-    String value, {
-    bool include = false,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.lessThan(
-        include: include,
-        property: r'abilities',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> abilitiesElementBetween(
-    String lower,
-    String upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.between(
-        property: r'abilities',
-        lower: lower,
-        includeLower: includeLower,
-        upper: upper,
-        includeUpper: includeUpper,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition>
-      abilitiesElementStartsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.startsWith(
-        property: r'abilities',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition>
-      abilitiesElementEndsWith(
-    String value, {
-    bool caseSensitive = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.endsWith(
-        property: r'abilities',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition>
-      abilitiesElementContains(String value, {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.contains(
-        property: r'abilities',
-        value: value,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> abilitiesElementMatches(
-      String pattern,
-      {bool caseSensitive = true}) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.matches(
-        property: r'abilities',
-        wildcard: pattern,
-        caseSensitive: caseSensitive,
-      ));
-    });
-  }
-
-  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition>
-      abilitiesElementIsEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'abilities',
-        value: '',
-      ));
-    });
-  }
-
-  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition>
-      abilitiesElementIsNotEmpty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.greaterThan(
-        property: r'abilities',
-        value: '',
       ));
     });
   }
@@ -1810,24 +1829,8 @@ extension TcgCardQueryFilter
     });
   }
 
-  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> isarIdIsNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const FilterCondition.isNull(
-        property: r'isarId',
-      ));
-    });
-  }
-
-  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> isarIdIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const FilterCondition.isNotNull(
-        property: r'isarId',
-      ));
-    });
-  }
-
   QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> isarIdEqualTo(
-      Id? value) {
+      Id value) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
         property: r'isarId',
@@ -1837,7 +1840,7 @@ extension TcgCardQueryFilter
   }
 
   QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> isarIdGreaterThan(
-    Id? value, {
+    Id value, {
     bool include = false,
   }) {
     return QueryBuilder.apply(this, (query) {
@@ -1850,7 +1853,7 @@ extension TcgCardQueryFilter
   }
 
   QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> isarIdLessThan(
-    Id? value, {
+    Id value, {
     bool include = false,
   }) {
     return QueryBuilder.apply(this, (query) {
@@ -1863,8 +1866,8 @@ extension TcgCardQueryFilter
   }
 
   QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> isarIdBetween(
-    Id? lower,
-    Id? upper, {
+    Id lower,
+    Id upper, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
@@ -3820,6 +3823,13 @@ extension TcgCardQueryFilter
 
 extension TcgCardQueryObject
     on QueryBuilder<TcgCard, TcgCard, QFilterCondition> {
+  QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> abilitiesElement(
+      FilterQuery<CardAbility> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'abilities');
+    });
+  }
+
   QueryBuilder<TcgCard, TcgCard, QAfterFilterCondition> attacksElement(
       FilterQuery<Attack> q) {
     return QueryBuilder.apply(this, (query) {
@@ -4093,12 +4103,6 @@ extension TcgCardQuerySortThenBy
 
 extension TcgCardQueryWhereDistinct
     on QueryBuilder<TcgCard, TcgCard, QDistinct> {
-  QueryBuilder<TcgCard, TcgCard, QDistinct> distinctByAbilities() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'abilities');
-    });
-  }
-
   QueryBuilder<TcgCard, TcgCard, QDistinct> distinctByArtist(
       {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
@@ -4199,7 +4203,8 @@ extension TcgCardQueryProperty
     });
   }
 
-  QueryBuilder<TcgCard, List<String>?, QQueryOperations> abilitiesProperty() {
+  QueryBuilder<TcgCard, List<CardAbility>?, QQueryOperations>
+      abilitiesProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'abilities');
     });
@@ -4361,6 +4366,11 @@ const CaughtTcgCardSchema = CollectionSchema(
       id: 1,
       name: r'isCaught',
       type: IsarType.bool,
+    ),
+    r'profileId': PropertySchema(
+      id: 2,
+      name: r'profileId',
+      type: IsarType.long,
     )
   },
   estimateSize: _caughtTcgCardEstimateSize,
@@ -4369,12 +4379,17 @@ const CaughtTcgCardSchema = CollectionSchema(
   deserializeProp: _caughtTcgCardDeserializeProp,
   idName: r'isarId',
   indexes: {
-    r'cardId': IndexSchema(
-      id: -8501089313549364976,
-      name: r'cardId',
+    r'profileId_cardId': IndexSchema(
+      id: -834564123193904824,
+      name: r'profileId_cardId',
       unique: true,
       replace: true,
       properties: [
+        IndexPropertySchema(
+          name: r'profileId',
+          type: IndexType.value,
+          caseSensitive: false,
+        ),
         IndexPropertySchema(
           name: r'cardId',
           type: IndexType.hash,
@@ -4409,6 +4424,7 @@ void _caughtTcgCardSerialize(
 ) {
   writer.writeString(offsets[0], object.cardId);
   writer.writeBool(offsets[1], object.isCaught);
+  writer.writeLong(offsets[2], object.profileId);
 }
 
 CaughtTcgCard _caughtTcgCardDeserialize(
@@ -4420,7 +4436,9 @@ CaughtTcgCard _caughtTcgCardDeserialize(
   final object = CaughtTcgCard(
     cardId: reader.readString(offsets[0]),
     isCaught: reader.readBool(offsets[1]),
+    profileId: reader.readLong(offsets[2]),
   );
+  object.isarId = id;
   return object;
 }
 
@@ -4435,6 +4453,8 @@ P _caughtTcgCardDeserializeProp<P>(
       return (reader.readString(offset)) as P;
     case 1:
       return (reader.readBool(offset)) as P;
+    case 2:
+      return (reader.readLong(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
@@ -4449,60 +4469,95 @@ List<IsarLinkBase<dynamic>> _caughtTcgCardGetLinks(CaughtTcgCard object) {
 }
 
 void _caughtTcgCardAttach(
-    IsarCollection<dynamic> col, Id id, CaughtTcgCard object) {}
+    IsarCollection<dynamic> col, Id id, CaughtTcgCard object) {
+  object.isarId = id;
+}
 
 extension CaughtTcgCardByIndex on IsarCollection<CaughtTcgCard> {
-  Future<CaughtTcgCard?> getByCardId(String cardId) {
-    return getByIndex(r'cardId', [cardId]);
+  Future<CaughtTcgCard?> getByProfileIdCardId(int profileId, String cardId) {
+    return getByIndex(r'profileId_cardId', [profileId, cardId]);
   }
 
-  CaughtTcgCard? getByCardIdSync(String cardId) {
-    return getByIndexSync(r'cardId', [cardId]);
+  CaughtTcgCard? getByProfileIdCardIdSync(int profileId, String cardId) {
+    return getByIndexSync(r'profileId_cardId', [profileId, cardId]);
   }
 
-  Future<bool> deleteByCardId(String cardId) {
-    return deleteByIndex(r'cardId', [cardId]);
+  Future<bool> deleteByProfileIdCardId(int profileId, String cardId) {
+    return deleteByIndex(r'profileId_cardId', [profileId, cardId]);
   }
 
-  bool deleteByCardIdSync(String cardId) {
-    return deleteByIndexSync(r'cardId', [cardId]);
+  bool deleteByProfileIdCardIdSync(int profileId, String cardId) {
+    return deleteByIndexSync(r'profileId_cardId', [profileId, cardId]);
   }
 
-  Future<List<CaughtTcgCard?>> getAllByCardId(List<String> cardIdValues) {
-    final values = cardIdValues.map((e) => [e]).toList();
-    return getAllByIndex(r'cardId', values);
+  Future<List<CaughtTcgCard?>> getAllByProfileIdCardId(
+      List<int> profileIdValues, List<String> cardIdValues) {
+    final len = profileIdValues.length;
+    assert(cardIdValues.length == len,
+        'All index values must have the same length');
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([profileIdValues[i], cardIdValues[i]]);
+    }
+
+    return getAllByIndex(r'profileId_cardId', values);
   }
 
-  List<CaughtTcgCard?> getAllByCardIdSync(List<String> cardIdValues) {
-    final values = cardIdValues.map((e) => [e]).toList();
-    return getAllByIndexSync(r'cardId', values);
+  List<CaughtTcgCard?> getAllByProfileIdCardIdSync(
+      List<int> profileIdValues, List<String> cardIdValues) {
+    final len = profileIdValues.length;
+    assert(cardIdValues.length == len,
+        'All index values must have the same length');
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([profileIdValues[i], cardIdValues[i]]);
+    }
+
+    return getAllByIndexSync(r'profileId_cardId', values);
   }
 
-  Future<int> deleteAllByCardId(List<String> cardIdValues) {
-    final values = cardIdValues.map((e) => [e]).toList();
-    return deleteAllByIndex(r'cardId', values);
+  Future<int> deleteAllByProfileIdCardId(
+      List<int> profileIdValues, List<String> cardIdValues) {
+    final len = profileIdValues.length;
+    assert(cardIdValues.length == len,
+        'All index values must have the same length');
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([profileIdValues[i], cardIdValues[i]]);
+    }
+
+    return deleteAllByIndex(r'profileId_cardId', values);
   }
 
-  int deleteAllByCardIdSync(List<String> cardIdValues) {
-    final values = cardIdValues.map((e) => [e]).toList();
-    return deleteAllByIndexSync(r'cardId', values);
+  int deleteAllByProfileIdCardIdSync(
+      List<int> profileIdValues, List<String> cardIdValues) {
+    final len = profileIdValues.length;
+    assert(cardIdValues.length == len,
+        'All index values must have the same length');
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([profileIdValues[i], cardIdValues[i]]);
+    }
+
+    return deleteAllByIndexSync(r'profileId_cardId', values);
   }
 
-  Future<Id> putByCardId(CaughtTcgCard object) {
-    return putByIndex(r'cardId', object);
+  Future<Id> putByProfileIdCardId(CaughtTcgCard object) {
+    return putByIndex(r'profileId_cardId', object);
   }
 
-  Id putByCardIdSync(CaughtTcgCard object, {bool saveLinks = true}) {
-    return putByIndexSync(r'cardId', object, saveLinks: saveLinks);
+  Id putByProfileIdCardIdSync(CaughtTcgCard object, {bool saveLinks = true}) {
+    return putByIndexSync(r'profileId_cardId', object, saveLinks: saveLinks);
   }
 
-  Future<List<Id>> putAllByCardId(List<CaughtTcgCard> objects) {
-    return putAllByIndex(r'cardId', objects);
+  Future<List<Id>> putAllByProfileIdCardId(List<CaughtTcgCard> objects) {
+    return putAllByIndex(r'profileId_cardId', objects);
   }
 
-  List<Id> putAllByCardIdSync(List<CaughtTcgCard> objects,
+  List<Id> putAllByProfileIdCardIdSync(List<CaughtTcgCard> objects,
       {bool saveLinks = true}) {
-    return putAllByIndexSync(r'cardId', objects, saveLinks: saveLinks);
+    return putAllByIndexSync(r'profileId_cardId', objects,
+        saveLinks: saveLinks);
   }
 }
 
@@ -4585,45 +4640,138 @@ extension CaughtTcgCardQueryWhere
     });
   }
 
-  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause> cardIdEqualTo(
-      String cardId) {
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause>
+      profileIdEqualToAnyCardId(int profileId) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'cardId',
-        value: [cardId],
+        indexName: r'profileId_cardId',
+        value: [profileId],
       ));
     });
   }
 
   QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause>
-      cardIdNotEqualTo(String cardId) {
+      profileIdNotEqualToAnyCardId(int profileId) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'cardId',
+              indexName: r'profileId_cardId',
               lower: [],
-              upper: [cardId],
+              upper: [profileId],
               includeUpper: false,
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'cardId',
-              lower: [cardId],
+              indexName: r'profileId_cardId',
+              lower: [profileId],
               includeLower: false,
               upper: [],
             ));
       } else {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'cardId',
-              lower: [cardId],
+              indexName: r'profileId_cardId',
+              lower: [profileId],
               includeLower: false,
               upper: [],
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'cardId',
+              indexName: r'profileId_cardId',
               lower: [],
-              upper: [cardId],
+              upper: [profileId],
+              includeUpper: false,
+            ));
+      }
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause>
+      profileIdGreaterThanAnyCardId(
+    int profileId, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IndexWhereClause.between(
+        indexName: r'profileId_cardId',
+        lower: [profileId],
+        includeLower: include,
+        upper: [],
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause>
+      profileIdLessThanAnyCardId(
+    int profileId, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IndexWhereClause.between(
+        indexName: r'profileId_cardId',
+        lower: [],
+        upper: [profileId],
+        includeUpper: include,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause>
+      profileIdBetweenAnyCardId(
+    int lowerProfileId,
+    int upperProfileId, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IndexWhereClause.between(
+        indexName: r'profileId_cardId',
+        lower: [lowerProfileId],
+        includeLower: includeLower,
+        upper: [upperProfileId],
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause>
+      profileIdCardIdEqualTo(int profileId, String cardId) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IndexWhereClause.equalTo(
+        indexName: r'profileId_cardId',
+        value: [profileId, cardId],
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterWhereClause>
+      profileIdEqualToCardIdNotEqualTo(int profileId, String cardId) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'profileId_cardId',
+              lower: [profileId],
+              upper: [profileId, cardId],
+              includeUpper: false,
+            ))
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'profileId_cardId',
+              lower: [profileId, cardId],
+              includeLower: false,
+              upper: [profileId],
+            ));
+      } else {
+        return query
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'profileId_cardId',
+              lower: [profileId, cardId],
+              includeLower: false,
+              upper: [profileId],
+            ))
+            .addWhereClause(IndexWhereClause.between(
+              indexName: r'profileId_cardId',
+              lower: [profileId],
+              upper: [profileId, cardId],
               includeUpper: false,
             ));
       }
@@ -4834,6 +4982,62 @@ extension CaughtTcgCardQueryFilter
       ));
     });
   }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      profileIdEqualTo(int value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'profileId',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      profileIdGreaterThan(
+    int value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'profileId',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      profileIdLessThan(
+    int value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'profileId',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterFilterCondition>
+      profileIdBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'profileId',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
 }
 
 extension CaughtTcgCardQueryObject
@@ -4866,6 +5070,19 @@ extension CaughtTcgCardQuerySortBy
       sortByIsCaughtDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isCaught', Sort.desc);
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterSortBy> sortByProfileId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'profileId', Sort.asc);
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterSortBy>
+      sortByProfileIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'profileId', Sort.desc);
     });
   }
 }
@@ -4908,6 +5125,19 @@ extension CaughtTcgCardQuerySortThenBy
       return query.addSortBy(r'isarId', Sort.desc);
     });
   }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterSortBy> thenByProfileId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'profileId', Sort.asc);
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QAfterSortBy>
+      thenByProfileIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'profileId', Sort.desc);
+    });
+  }
 }
 
 extension CaughtTcgCardQueryWhereDistinct
@@ -4922,6 +5152,12 @@ extension CaughtTcgCardQueryWhereDistinct
   QueryBuilder<CaughtTcgCard, CaughtTcgCard, QDistinct> distinctByIsCaught() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'isCaught');
+    });
+  }
+
+  QueryBuilder<CaughtTcgCard, CaughtTcgCard, QDistinct> distinctByProfileId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'profileId');
     });
   }
 }
@@ -4945,11 +5181,566 @@ extension CaughtTcgCardQueryProperty
       return query.addPropertyName(r'isCaught');
     });
   }
+
+  QueryBuilder<CaughtTcgCard, int, QQueryOperations> profileIdProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'profileId');
+    });
+  }
 }
 
 // **************************************************************************
 // IsarEmbeddedGenerator
 // **************************************************************************
+
+// coverage:ignore-file
+// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
+
+const CardAbilitySchema = Schema(
+  name: r'CardAbility',
+  id: -1265590364791088359,
+  properties: {
+    r'name': PropertySchema(
+      id: 0,
+      name: r'name',
+      type: IsarType.string,
+    ),
+    r'text': PropertySchema(
+      id: 1,
+      name: r'text',
+      type: IsarType.string,
+    ),
+    r'type': PropertySchema(
+      id: 2,
+      name: r'type',
+      type: IsarType.string,
+    )
+  },
+  estimateSize: _cardAbilityEstimateSize,
+  serialize: _cardAbilitySerialize,
+  deserialize: _cardAbilityDeserialize,
+  deserializeProp: _cardAbilityDeserializeProp,
+);
+
+int _cardAbilityEstimateSize(
+  CardAbility object,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  var bytesCount = offsets.last;
+  {
+    final value = object.name;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
+    final value = object.text;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
+    final value = object.type;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  return bytesCount;
+}
+
+void _cardAbilitySerialize(
+  CardAbility object,
+  IsarWriter writer,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  writer.writeString(offsets[0], object.name);
+  writer.writeString(offsets[1], object.text);
+  writer.writeString(offsets[2], object.type);
+}
+
+CardAbility _cardAbilityDeserialize(
+  Id id,
+  IsarReader reader,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  final object = CardAbility(
+    name: reader.readStringOrNull(offsets[0]),
+    text: reader.readStringOrNull(offsets[1]),
+    type: reader.readStringOrNull(offsets[2]),
+  );
+  return object;
+}
+
+P _cardAbilityDeserializeProp<P>(
+  IsarReader reader,
+  int propertyId,
+  int offset,
+  Map<Type, List<int>> allOffsets,
+) {
+  switch (propertyId) {
+    case 0:
+      return (reader.readStringOrNull(offset)) as P;
+    case 1:
+      return (reader.readStringOrNull(offset)) as P;
+    case 2:
+      return (reader.readStringOrNull(offset)) as P;
+    default:
+      throw IsarError('Unknown property with id $propertyId');
+  }
+}
+
+extension CardAbilityQueryFilter
+    on QueryBuilder<CardAbility, CardAbility, QFilterCondition> {
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> nameIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'name',
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition>
+      nameIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'name',
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> nameEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'name',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> nameGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'name',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> nameLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'name',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> nameBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'name',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> nameStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'name',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> nameEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'name',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> nameContains(
+      String value,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'name',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> nameMatches(
+      String pattern,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'name',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> nameIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'name',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition>
+      nameIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'name',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> textIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'text',
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition>
+      textIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'text',
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> textEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'text',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> textGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'text',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> textLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'text',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> textBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'text',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> textStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'text',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> textEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'text',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> textContains(
+      String value,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'text',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> textMatches(
+      String pattern,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'text',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> textIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'text',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition>
+      textIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'text',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> typeIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'type',
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition>
+      typeIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'type',
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> typeEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'type',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> typeGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'type',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> typeLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'type',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> typeBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'type',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> typeStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'type',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> typeEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'type',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> typeContains(
+      String value,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'type',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> typeMatches(
+      String pattern,
+      {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'type',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition> typeIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'type',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<CardAbility, CardAbility, QAfterFilterCondition>
+      typeIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'type',
+        value: '',
+      ));
+    });
+  }
+}
+
+extension CardAbilityQueryObject
+    on QueryBuilder<CardAbility, CardAbility, QFilterCondition> {}
 
 // coverage:ignore-file
 // ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
@@ -8791,7 +9582,7 @@ const TcgplayerSchema = Schema(
       id: 0,
       name: r'prices',
       type: IsarType.object,
-      target: r'PriceData',
+      target: r'TcgplayerPrices',
     ),
     r'updatedAt': PropertySchema(
       id: 1,
@@ -8820,8 +9611,8 @@ int _tcgplayerEstimateSize(
     final value = object.prices;
     if (value != null) {
       bytesCount += 3 +
-          PriceDataSchema.estimateSize(
-              value, allOffsets[PriceData]!, allOffsets);
+          TcgplayerPricesSchema.estimateSize(
+              value, allOffsets[TcgplayerPrices]!, allOffsets);
     }
   }
   {
@@ -8845,10 +9636,10 @@ void _tcgplayerSerialize(
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeObject<PriceData>(
+  writer.writeObject<TcgplayerPrices>(
     offsets[0],
     allOffsets,
-    PriceDataSchema.serialize,
+    TcgplayerPricesSchema.serialize,
     object.prices,
   );
   writer.writeString(offsets[1], object.updatedAt);
@@ -8862,9 +9653,9 @@ Tcgplayer _tcgplayerDeserialize(
   Map<Type, List<int>> allOffsets,
 ) {
   final object = Tcgplayer(
-    prices: reader.readObjectOrNull<PriceData>(
+    prices: reader.readObjectOrNull<TcgplayerPrices>(
       offsets[0],
-      PriceDataSchema.deserialize,
+      TcgplayerPricesSchema.deserialize,
       allOffsets,
     ),
     updatedAt: reader.readStringOrNull(offsets[1]),
@@ -8881,9 +9672,9 @@ P _tcgplayerDeserializeProp<P>(
 ) {
   switch (propertyId) {
     case 0:
-      return (reader.readObjectOrNull<PriceData>(
+      return (reader.readObjectOrNull<TcgplayerPrices>(
         offset,
-        PriceDataSchema.deserialize,
+        TcgplayerPricesSchema.deserialize,
         allOffsets,
       )) as P;
     case 1:
@@ -9212,9 +10003,461 @@ extension TcgplayerQueryFilter
 extension TcgplayerQueryObject
     on QueryBuilder<Tcgplayer, Tcgplayer, QFilterCondition> {
   QueryBuilder<Tcgplayer, Tcgplayer, QAfterFilterCondition> prices(
-      FilterQuery<PriceData> q) {
+      FilterQuery<TcgplayerPrices> q) {
     return QueryBuilder.apply(this, (query) {
       return query.object(q, r'prices');
+    });
+  }
+}
+
+// coverage:ignore-file
+// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
+
+const TcgplayerPricesSchema = Schema(
+  name: r'TcgplayerPrices',
+  id: -4971003111876056198,
+  properties: {
+    r'firstEditionHolofoil': PropertySchema(
+      id: 0,
+      name: r'firstEditionHolofoil',
+      type: IsarType.object,
+      target: r'PriceData',
+    ),
+    r'firstEditionNormal': PropertySchema(
+      id: 1,
+      name: r'firstEditionNormal',
+      type: IsarType.object,
+      target: r'PriceData',
+    ),
+    r'holofoil': PropertySchema(
+      id: 2,
+      name: r'holofoil',
+      type: IsarType.object,
+      target: r'PriceData',
+    ),
+    r'normal': PropertySchema(
+      id: 3,
+      name: r'normal',
+      type: IsarType.object,
+      target: r'PriceData',
+    ),
+    r'reverseHolofoil': PropertySchema(
+      id: 4,
+      name: r'reverseHolofoil',
+      type: IsarType.object,
+      target: r'PriceData',
+    ),
+    r'unlimited': PropertySchema(
+      id: 5,
+      name: r'unlimited',
+      type: IsarType.object,
+      target: r'PriceData',
+    ),
+    r'unlimitedHolofoil': PropertySchema(
+      id: 6,
+      name: r'unlimitedHolofoil',
+      type: IsarType.object,
+      target: r'PriceData',
+    )
+  },
+  estimateSize: _tcgplayerPricesEstimateSize,
+  serialize: _tcgplayerPricesSerialize,
+  deserialize: _tcgplayerPricesDeserialize,
+  deserializeProp: _tcgplayerPricesDeserializeProp,
+);
+
+int _tcgplayerPricesEstimateSize(
+  TcgplayerPrices object,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  var bytesCount = offsets.last;
+  {
+    final value = object.firstEditionHolofoil;
+    if (value != null) {
+      bytesCount += 3 +
+          PriceDataSchema.estimateSize(
+              value, allOffsets[PriceData]!, allOffsets);
+    }
+  }
+  {
+    final value = object.firstEditionNormal;
+    if (value != null) {
+      bytesCount += 3 +
+          PriceDataSchema.estimateSize(
+              value, allOffsets[PriceData]!, allOffsets);
+    }
+  }
+  {
+    final value = object.holofoil;
+    if (value != null) {
+      bytesCount += 3 +
+          PriceDataSchema.estimateSize(
+              value, allOffsets[PriceData]!, allOffsets);
+    }
+  }
+  {
+    final value = object.normal;
+    if (value != null) {
+      bytesCount += 3 +
+          PriceDataSchema.estimateSize(
+              value, allOffsets[PriceData]!, allOffsets);
+    }
+  }
+  {
+    final value = object.reverseHolofoil;
+    if (value != null) {
+      bytesCount += 3 +
+          PriceDataSchema.estimateSize(
+              value, allOffsets[PriceData]!, allOffsets);
+    }
+  }
+  {
+    final value = object.unlimited;
+    if (value != null) {
+      bytesCount += 3 +
+          PriceDataSchema.estimateSize(
+              value, allOffsets[PriceData]!, allOffsets);
+    }
+  }
+  {
+    final value = object.unlimitedHolofoil;
+    if (value != null) {
+      bytesCount += 3 +
+          PriceDataSchema.estimateSize(
+              value, allOffsets[PriceData]!, allOffsets);
+    }
+  }
+  return bytesCount;
+}
+
+void _tcgplayerPricesSerialize(
+  TcgplayerPrices object,
+  IsarWriter writer,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  writer.writeObject<PriceData>(
+    offsets[0],
+    allOffsets,
+    PriceDataSchema.serialize,
+    object.firstEditionHolofoil,
+  );
+  writer.writeObject<PriceData>(
+    offsets[1],
+    allOffsets,
+    PriceDataSchema.serialize,
+    object.firstEditionNormal,
+  );
+  writer.writeObject<PriceData>(
+    offsets[2],
+    allOffsets,
+    PriceDataSchema.serialize,
+    object.holofoil,
+  );
+  writer.writeObject<PriceData>(
+    offsets[3],
+    allOffsets,
+    PriceDataSchema.serialize,
+    object.normal,
+  );
+  writer.writeObject<PriceData>(
+    offsets[4],
+    allOffsets,
+    PriceDataSchema.serialize,
+    object.reverseHolofoil,
+  );
+  writer.writeObject<PriceData>(
+    offsets[5],
+    allOffsets,
+    PriceDataSchema.serialize,
+    object.unlimited,
+  );
+  writer.writeObject<PriceData>(
+    offsets[6],
+    allOffsets,
+    PriceDataSchema.serialize,
+    object.unlimitedHolofoil,
+  );
+}
+
+TcgplayerPrices _tcgplayerPricesDeserialize(
+  Id id,
+  IsarReader reader,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  final object = TcgplayerPrices(
+    firstEditionHolofoil: reader.readObjectOrNull<PriceData>(
+      offsets[0],
+      PriceDataSchema.deserialize,
+      allOffsets,
+    ),
+    firstEditionNormal: reader.readObjectOrNull<PriceData>(
+      offsets[1],
+      PriceDataSchema.deserialize,
+      allOffsets,
+    ),
+    holofoil: reader.readObjectOrNull<PriceData>(
+      offsets[2],
+      PriceDataSchema.deserialize,
+      allOffsets,
+    ),
+    normal: reader.readObjectOrNull<PriceData>(
+      offsets[3],
+      PriceDataSchema.deserialize,
+      allOffsets,
+    ),
+    reverseHolofoil: reader.readObjectOrNull<PriceData>(
+      offsets[4],
+      PriceDataSchema.deserialize,
+      allOffsets,
+    ),
+    unlimited: reader.readObjectOrNull<PriceData>(
+      offsets[5],
+      PriceDataSchema.deserialize,
+      allOffsets,
+    ),
+    unlimitedHolofoil: reader.readObjectOrNull<PriceData>(
+      offsets[6],
+      PriceDataSchema.deserialize,
+      allOffsets,
+    ),
+  );
+  return object;
+}
+
+P _tcgplayerPricesDeserializeProp<P>(
+  IsarReader reader,
+  int propertyId,
+  int offset,
+  Map<Type, List<int>> allOffsets,
+) {
+  switch (propertyId) {
+    case 0:
+      return (reader.readObjectOrNull<PriceData>(
+        offset,
+        PriceDataSchema.deserialize,
+        allOffsets,
+      )) as P;
+    case 1:
+      return (reader.readObjectOrNull<PriceData>(
+        offset,
+        PriceDataSchema.deserialize,
+        allOffsets,
+      )) as P;
+    case 2:
+      return (reader.readObjectOrNull<PriceData>(
+        offset,
+        PriceDataSchema.deserialize,
+        allOffsets,
+      )) as P;
+    case 3:
+      return (reader.readObjectOrNull<PriceData>(
+        offset,
+        PriceDataSchema.deserialize,
+        allOffsets,
+      )) as P;
+    case 4:
+      return (reader.readObjectOrNull<PriceData>(
+        offset,
+        PriceDataSchema.deserialize,
+        allOffsets,
+      )) as P;
+    case 5:
+      return (reader.readObjectOrNull<PriceData>(
+        offset,
+        PriceDataSchema.deserialize,
+        allOffsets,
+      )) as P;
+    case 6:
+      return (reader.readObjectOrNull<PriceData>(
+        offset,
+        PriceDataSchema.deserialize,
+        allOffsets,
+      )) as P;
+    default:
+      throw IsarError('Unknown property with id $propertyId');
+  }
+}
+
+extension TcgplayerPricesQueryFilter
+    on QueryBuilder<TcgplayerPrices, TcgplayerPrices, QFilterCondition> {
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      firstEditionHolofoilIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'firstEditionHolofoil',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      firstEditionHolofoilIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'firstEditionHolofoil',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      firstEditionNormalIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'firstEditionNormal',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      firstEditionNormalIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'firstEditionNormal',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      holofoilIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'holofoil',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      holofoilIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'holofoil',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      normalIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'normal',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      normalIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'normal',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      reverseHolofoilIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'reverseHolofoil',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      reverseHolofoilIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'reverseHolofoil',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      unlimitedIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'unlimited',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      unlimitedIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'unlimited',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      unlimitedHolofoilIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNull(
+        property: r'unlimitedHolofoil',
+      ));
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      unlimitedHolofoilIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(const FilterCondition.isNotNull(
+        property: r'unlimitedHolofoil',
+      ));
+    });
+  }
+}
+
+extension TcgplayerPricesQueryObject
+    on QueryBuilder<TcgplayerPrices, TcgplayerPrices, QFilterCondition> {
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      firstEditionHolofoil(FilterQuery<PriceData> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'firstEditionHolofoil');
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      firstEditionNormal(FilterQuery<PriceData> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'firstEditionNormal');
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      holofoil(FilterQuery<PriceData> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'holofoil');
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition> normal(
+      FilterQuery<PriceData> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'normal');
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      reverseHolofoil(FilterQuery<PriceData> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'reverseHolofoil');
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      unlimited(FilterQuery<PriceData> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'unlimited');
+    });
+  }
+
+  QueryBuilder<TcgplayerPrices, TcgplayerPrices, QAfterFilterCondition>
+      unlimitedHolofoil(FilterQuery<PriceData> q) {
+    return QueryBuilder.apply(this, (query) {
+      return query.object(q, r'unlimitedHolofoil');
     });
   }
 }
@@ -11542,7 +12785,7 @@ TcgCard _$TcgCardFromJson(Map<String, dynamic> json) => TcgCard(
           ?.map((e) => e as String)
           .toList(),
       abilities: (json['abilities'] as List<dynamic>?)
-          ?.map((e) => e as String)
+          ?.map((e) => CardAbility.fromJson(e as Map<String, dynamic>))
           .toList(),
       rules:
           (json['rules'] as List<dynamic>?)?.map((e) => e as String).toList(),
@@ -11581,16 +12824,13 @@ TcgCard _$TcgCardFromJson(Map<String, dynamic> json) => TcgCard(
           ? null
           : CardMarket.fromJson(json['cardmarket'] as Map<String, dynamic>),
       flavorText: json['flavorText'] as String?,
-    )..userData = json['userData'] == null
-        ? null
-        : UserData.fromJson(json['userData'] as Map<String, dynamic>);
+    );
 
 Map<String, dynamic> _$TcgCardToJson(TcgCard instance) => <String, dynamic>{
       'id': instance.id,
       'name': instance.name,
       'supertype': instance.supertype,
       'subtypes': instance.subtypes,
-      'userData': instance.userData,
       'types': instance.types,
       'evolvesTo': instance.evolvesTo,
       'abilities': instance.abilities,
@@ -11610,6 +12850,19 @@ Map<String, dynamic> _$TcgCardToJson(TcgCard instance) => <String, dynamic>{
       'tcgplayer': instance.tcgplayer,
       'cardmarket': instance.cardmarket,
       'flavorText': instance.flavorText,
+    };
+
+CardAbility _$CardAbilityFromJson(Map<String, dynamic> json) => CardAbility(
+      name: json['name'] as String?,
+      text: json['text'] as String?,
+      type: json['type'] as String?,
+    );
+
+Map<String, dynamic> _$CardAbilityToJson(CardAbility instance) =>
+    <String, dynamic>{
+      'name': instance.name,
+      'text': instance.text,
+      'type': instance.type,
     };
 
 Attack _$AttackFromJson(Map<String, dynamic> json) => Attack(
@@ -11703,13 +12956,52 @@ Tcgplayer _$TcgplayerFromJson(Map<String, dynamic> json) => Tcgplayer(
       updatedAt: json['updatedAt'] as String?,
       prices: json['prices'] == null
           ? null
-          : PriceData.fromJson(json['prices'] as Map<String, dynamic>),
+          : TcgplayerPrices.fromJson(json['prices'] as Map<String, dynamic>),
     );
 
 Map<String, dynamic> _$TcgplayerToJson(Tcgplayer instance) => <String, dynamic>{
       'url': instance.url,
       'updatedAt': instance.updatedAt,
       'prices': instance.prices,
+    };
+
+TcgplayerPrices _$TcgplayerPricesFromJson(Map<String, dynamic> json) =>
+    TcgplayerPrices(
+      normal: json['normal'] == null
+          ? null
+          : PriceData.fromJson(json['normal'] as Map<String, dynamic>),
+      holofoil: json['holofoil'] == null
+          ? null
+          : PriceData.fromJson(json['holofoil'] as Map<String, dynamic>),
+      reverseHolofoil: json['reverseHolofoil'] == null
+          ? null
+          : PriceData.fromJson(json['reverseHolofoil'] as Map<String, dynamic>),
+      firstEditionNormal: json['1stEditionNormal'] == null
+          ? null
+          : PriceData.fromJson(
+              json['1stEditionNormal'] as Map<String, dynamic>),
+      firstEditionHolofoil: json['1stEditionHolofoil'] == null
+          ? null
+          : PriceData.fromJson(
+              json['1stEditionHolofoil'] as Map<String, dynamic>),
+      unlimited: json['unlimited'] == null
+          ? null
+          : PriceData.fromJson(json['unlimited'] as Map<String, dynamic>),
+      unlimitedHolofoil: json['unlimitedHolofoil'] == null
+          ? null
+          : PriceData.fromJson(
+              json['unlimitedHolofoil'] as Map<String, dynamic>),
+    );
+
+Map<String, dynamic> _$TcgplayerPricesToJson(TcgplayerPrices instance) =>
+    <String, dynamic>{
+      'normal': instance.normal,
+      'holofoil': instance.holofoil,
+      'reverseHolofoil': instance.reverseHolofoil,
+      '1stEditionNormal': instance.firstEditionNormal,
+      '1stEditionHolofoil': instance.firstEditionHolofoil,
+      'unlimited': instance.unlimited,
+      'unlimitedHolofoil': instance.unlimitedHolofoil,
     };
 
 CardMarket _$CardMarketFromJson(Map<String, dynamic> json) => CardMarket(

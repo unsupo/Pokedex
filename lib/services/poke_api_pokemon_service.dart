@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:async_locks/async_locks.dart';
 import 'package:http/http.dart' as http;
+
+import '../utils/pokeapi_url.dart';
 import '../models/pokeapi/berries.dart';
 import '../models/pokeapi/contests.dart';
 import '../models/pokeapi/egg_groups.dart';
@@ -45,6 +47,16 @@ class PokeApiPokemonService implements PokemonService {
   // this semaphore so at most a handful are ever in flight together.
   final Semaphore _httpSemaphore = Semaphore(8);
 
+  // A cold start enqueues ~5000+ requests through _httpSemaphore above in one
+  // shot (bulk background sync). Since that semaphore is a plain FIFO queue,
+  // anything the user is *actively looking at right now* - the Pokemon whose
+  // details screen is open - would otherwise sit behind thousands of unrelated
+  // background requests before its turn comes up, even though it's a single
+  // small fetch. Route on-demand "the user is waiting on this" requests
+  // through this separate, smaller lane instead so they aren't stuck behind
+  // the bulk sync's queue.
+  final Semaphore _priorityHttpSemaphore = Semaphore(4);
+
   // The top-level http.get() helper opens (and closes) a brand-new
   // connection - and a fresh TLS handshake - for every single call. Reusing
   // one Client lets Dart's HttpClient keep persistent connections alive to
@@ -52,8 +64,9 @@ class PokeApiPokemonService implements PokemonService {
   // makes, instead of paying full TCP+TLS setup every time.
   final http.Client _httpClient = http.Client();
 
-  Future<http.Response> _get(Uri uri) {
-    return _httpSemaphore.run(() => _httpClient.get(uri));
+  Future<http.Response> _get(Uri uri, {bool priority = false}) {
+    final semaphore = priority ? _priorityHttpSemaphore : _httpSemaphore;
+    return semaphore.run(() => _httpClient.get(uri));
   }
 
   /// Every single-resource getX(id) method below (getBerry, getMove,
@@ -68,6 +81,7 @@ class PokeApiPokemonService implements PokemonService {
     required T Function(Map<String, dynamic>) fromJson,
     required String label,
     Future<void> Function(T value)? save,
+    bool priority = false,
   }) async {
     final cached = await getCached();
     if (cached != null) {
@@ -77,7 +91,7 @@ class PokeApiPokemonService implements PokemonService {
     if (kDebugMode) {
       print('Fetching $label from API');
     }
-    final response = await _get(Uri.parse('$_baseUrl/$path'));
+    final response = await _get(Uri.parse('$_baseUrl/$path'), priority: priority);
     if (response.statusCode != 200) {
       throw Exception('Failed to load $label');
     }
@@ -109,8 +123,16 @@ class PokeApiPokemonService implements PokemonService {
     if (kDebugMode) {
       print('Fetching pokemon from API');
     }
-    final response =
-        await _get(Uri.parse('$_baseUrl/pokemon?limit=100000&offset=0'));
+    // /pokemon lists every *variety* separately (e.g. minior-red-meteor,
+    // minior-blue-meteor, ... all ~14 Minior forms as distinct entries with
+    // ids >=10000) - that flooded the main list with non-default form
+    // entries never meant to be shown as their own rows, and for species
+    // whose default variety has a compound name (Minior, Mimikyu, ...) even
+    // the "normal" entry showed the full variant name instead of the clean
+    // species name. /pokemon-species lists exactly one entry per species
+    // (1025 total) with the clean name and the real national dex id.
+    final response = await _get(
+        Uri.parse('$_baseUrl/pokemon-species?limit=100000&offset=0'));
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body)['results'];
@@ -128,17 +150,20 @@ class PokeApiPokemonService implements PokemonService {
   }
 
   @override
-  Future<PokemonDetails> getPokemonDetails(int id) => _fetchCached(
+  Future<PokemonDetails> getPokemonDetails(int id, {bool priority = false}) =>
+      _fetchCached(
         getCached: () => _localService.getPokemonDetails(id),
         path: 'pokemon/$id',
         fromJson: PokemonDetails.fromJson,
         label: 'details for Pokemon $id',
         // Not saved here - the caller batches these saves together.
         save: null,
+        priority: priority,
       );
 
   @override
-  Future<PokemonSpecies> getPokemonSpecies(int id, {bool force = false}) =>
+  Future<PokemonSpecies> getPokemonSpecies(int id,
+          {bool force = false, bool priority = false}) =>
       _fetchCached(
         getCached: () async =>
             force ? null : await _localService.getPokemonSpecies(id),
@@ -147,16 +172,19 @@ class PokeApiPokemonService implements PokemonService {
         label: 'species for Pokemon $id',
         // Not saved here - the caller batches these saves together.
         save: null,
+        priority: priority,
       );
 
   @override
-  Future<EvolutionChain?> getEvolutionChain(int id, {bool? batch}) =>
+  Future<EvolutionChain?> getEvolutionChain(int id,
+          {bool? batch, bool priority = false}) =>
       _fetchCached<EvolutionChain>(
         getCached: () => _localService.getEvolutionChain(id),
         path: 'evolution-chain/$id',
         fromJson: EvolutionChain.fromJson,
         label: 'evolution chain for chain $id',
         save: (batch ?? false) ? _localService.saveEvolutionChain : null,
+        priority: priority,
       );
 
   @override
@@ -306,6 +334,17 @@ class PokeApiPokemonService implements PokemonService {
         label: 'version-group $id',
         save: _localService.saveVersionGroup,
       );
+
+  @override
+  Future<List<int>> getVersionGroupIds() async {
+    final response =
+        await _get(Uri.parse('$_baseUrl/version-group?limit=100000&offset=0'));
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load version groups');
+    }
+    final results = jsonDecode(response.body)['results'] as List;
+    return [for (final r in results) idFromPokeApiUrl(r['url'] as String)];
+  }
   // endregion
 
   // region Items
@@ -407,13 +446,14 @@ class PokeApiPokemonService implements PokemonService {
 
   // region Moves
   @override
-  Future<Move> getMove(int id) => _fetchCached(
+  Future<Move> getMove(int id, {bool priority = false}) => _fetchCached(
         getCached: () => _localService.getMove(id),
         path: 'move/$id',
         fromJson: Move.fromJson,
         label: 'move $id',
         // Not saved here - the caller batches these saves together.
         save: null,
+        priority: priority,
       );
 
   @override

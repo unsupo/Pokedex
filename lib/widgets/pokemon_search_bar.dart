@@ -4,7 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/pokemon_api_provider.dart';
+import '../services/ui_state_provider.dart';
+import '../utils/pokemon_sort.dart';
+import '../utils/search_query_parser.dart';
 import 'filter_modal.dart';
+
+/// Label shown in the sort menu for each [PokemonSort] value, in the fixed
+/// order the menu lists them. See docs/features/list-sorting.md.
+const Map<PokemonSort, String> _sortLabels = {
+  PokemonSort.nameAscending: 'Name A-Z',
+  PokemonSort.nameDescending: 'Name Z-A',
+  PokemonSort.dexAscending: 'Dex # (low to high)',
+  PokemonSort.dexDescending: 'Dex # (high to low)',
+};
 
 class PokemonSearchBar extends StatefulWidget {
   final ScrollController scrollController;
@@ -54,7 +66,8 @@ class _PokemonSearchBarState extends State<PokemonSearchBar> {
 
   void _filterPokemon(Map<Filters, dynamic> filters) {
     final pokemonData = Provider.of<PokemonApiProvider>(context, listen: false);
-    pokemonData.filterPokemon(_searchController.text, filters);
+    final parsed = parseSearchQuery(_searchController.text);
+    pokemonData.filterPokemon(parsed.fuzzyTerm, filters, stages: parsed.stages);
     _resetScrollPosition();
   }
 
@@ -69,6 +82,7 @@ class _PokemonSearchBarState extends State<PokemonSearchBar> {
               controller: _searchController,
               decoration: InputDecoration(
                 labelText: 'Search Pokemon',
+                hintText: 'type, move, ability… or stage:1',
                 suffixIcon: IconButton(
                   icon: const Icon(Icons.clear),
                   onPressed: () {
@@ -82,6 +96,24 @@ class _PokemonSearchBarState extends State<PokemonSearchBar> {
             ),
           ),
           Text("${context.watch<PokemonApiProvider>().filteredPokemonCount}"),
+          PopupMenuButton<PokemonSort>(
+            icon: const Icon(Icons.sort),
+            tooltip: 'Sort Pokemon list',
+            onSelected: (sort) {
+              context.read<UiStateProvider>().setSort(sort);
+              context.read<PokemonApiProvider>().updateSort(sort);
+            },
+            itemBuilder: (context) {
+              final current = context.read<UiStateProvider>().sort;
+              return _sortLabels.entries
+                  .map((entry) => CheckedPopupMenuItem<PokemonSort>(
+                        value: entry.key,
+                        checked: entry.key == current,
+                        child: Text(entry.value),
+                      ))
+                  .toList();
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.filter_list),
             onPressed: () {

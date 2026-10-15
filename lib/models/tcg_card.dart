@@ -2,27 +2,51 @@ import 'dart:core';
 
 import 'package:isar_community/isar.dart';
 import 'package:json_annotation/json_annotation.dart';
-import 'package:pokedex_app/models/user_data.dart';
 
 part 'tcg_card.g.dart';
 
 @collection
 @JsonSerializable()
 class TcgCard {
+  // Unique + replace:true so caching the same card id twice (e.g. once from
+  // a live fetch, once more from a later one) upserts instead of creating a
+  // duplicate row - see the isarId note just below, and the regression test
+  // in test/services/local/card_binder_persistence_test.dart.
+  @Index(unique: true, replace: true)
   final String? id;
-  final Id? isarId = Isar.autoIncrement;
+
+  // Not final: Isar must be able to assign the stored id when it reads a row
+  // back, or a later put would insert a duplicate instead of updating - the
+  // same upsert footgun already hit and fixed for CaughtTcgCard.isarId.
+  //
+  // @JsonKey excluded: making this non-final (above) turned it from an
+  // optional `Id?` into a required `Id` as far as json_serializable is
+  // concerned, so the generated fromJson started doing a hard
+  // `(json['isarId'] as num).toInt()` cast. The real PokemonTCG API response
+  // never has an "isarId" key, so that cast threw `type 'Null' is not a
+  // subtype of type 'num'` for every single card, on every fetch - silently
+  // caught per-card in pokemon_tcg_api_service.dart, so it surfaced as an
+  // empty card list (blank Cards tab, empty binder) rather than a visible
+  // error. isarId is a local Isar primary key, never part of the API's JSON
+  // shape, so it must never round-trip through fromJson/toJson at all - see
+  // docs/features/tcg-card-json-parsing-regression.md.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  Id isarId = Isar.autoIncrement;
   final String? name;
   final String? supertype;
   final List<String>? subtypes;
 
+  /// Transient: this profile's caught status, filled in by TcgApiProvider.
   @ignore
-  UserData? userData;
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  bool isCaught = false;
   // final String? level; // Changed to int
   // final String? hp; // Changed to int
   final List<String>? types;
   final List<String>? evolvesTo;
   // final List<String>? evolvesFrom;
-  final List<String>? abilities; // Consider making a dedicated Ability class
+  final List<CardAbility>?
+      abilities; // Consider making a dedicated Ability class
   final List<String>? rules; // Consider making a dedicated Rule class
   final List<Attack>? attacks;
   final List<WeaknessResistance>? weaknesses;
@@ -75,24 +99,51 @@ class TcgCard {
   Map<String, dynamic> toJson() => _$TcgCardToJson(this);
 }
 
-// Persisted caught-status for a TCG card, keyed by the TCG API's own
-// (globally unique, stable) string card id — e.g. "swsh1-1". This is
-// intentionally a separate Isar collection from UserData, which is keyed by
-// PokeAPI national dex ids (small ints). Reusing UserData/its id-space for
-// TCG cards would collide with and corrupt caught-Pokemon state.
+// Persisted caught-status for a TCG card, per profile. Keyed by the profile
+// plus the TCG API's own (globally unique, stable) string card id, e.g.
+// "swsh1-1". Kept separate from CaughtPokemon, which is keyed by PokeAPI
+// national dex ids (small ints), so card ids cannot collide with Pokemon data.
 @collection
 class CaughtTcgCard {
-  final Id isarId = Isar.autoIncrement;
+  // Not final: Isar must be able to assign the stored id when it reads a row
+  // back, or a later put would insert a duplicate instead of updating.
+  Id isarId = Isar.autoIncrement;
 
-  @Index(unique: true, replace: true)
+  @Index(
+    composite: [CompositeIndex('cardId')],
+    unique: true,
+    replace: true,
+  )
+  late int profileId;
+
   late String cardId;
 
   late bool isCaught;
 
   CaughtTcgCard({
+    required this.profileId,
     required this.cardId,
     required this.isCaught,
   });
+}
+
+@embedded
+@JsonSerializable()
+class CardAbility {
+  final String? name;
+  final String? text;
+  final String? type;
+
+  CardAbility({
+    this.name,
+    this.text,
+    this.type,
+  });
+
+  factory CardAbility.fromJson(Map<String, dynamic> json) =>
+      _$CardAbilityFromJson(json);
+
+  Map<String, dynamic> toJson() => _$CardAbilityToJson(this);
 }
 
 @embedded
@@ -212,7 +263,7 @@ class CardImages {
 class Tcgplayer {
   final String? url;
   final String? updatedAt;
-  final PriceData? prices;
+  final TcgplayerPrices? prices;
 
   Tcgplayer({
     this.url,
@@ -224,6 +275,52 @@ class Tcgplayer {
       _$TcgplayerFromJson(json);
 
   Map<String, dynamic> toJson() => _$TcgplayerToJson(this);
+}
+
+/// TCGPlayer's `prices` object is keyed by print variant (`"holofoil"`,
+/// `"normal"`, `"reverseHolofoil"`, ...) - not a single flat price object
+/// the way Cardmarket's is (see [CardMarket]/[PriceData]). Confirmed
+/// against a real response (`GET /v2/cards/base1-4`):
+/// ```json
+/// "tcgplayer": {"prices": {"holofoil": {"low": 499.99, "market": 928.06, ...}}}
+/// ```
+/// Isar's embedded-object model needs a fixed schema, so this can't just
+/// be a `Map<String, PriceData>` - every variant TCGPlayer actually uses
+/// across pokemontcg.io's card data gets its own optional field instead.
+/// Before this, [Tcgplayer.prices] was typed as a single [PriceData], so
+/// `PriceData.fromJson` read top-level keys (`low`, `mid`, `market`, ...)
+/// that don't exist at that level - every field silently parsed to null,
+/// so a card's USD price was *never* actually available, and
+/// `estimatedCardPrice` (utils/tcg_price_util.dart) always fell through to
+/// Cardmarket's EUR price instead - reported live: "it still doesn't show
+/// it in dollars." See "Fifteenth round" in docs/features/card-binder.md.
+@embedded
+@JsonSerializable()
+class TcgplayerPrices {
+  final PriceData? normal;
+  final PriceData? holofoil;
+  final PriceData? reverseHolofoil;
+  @JsonKey(name: '1stEditionNormal')
+  final PriceData? firstEditionNormal;
+  @JsonKey(name: '1stEditionHolofoil')
+  final PriceData? firstEditionHolofoil;
+  final PriceData? unlimited;
+  final PriceData? unlimitedHolofoil;
+
+  TcgplayerPrices({
+    this.normal,
+    this.holofoil,
+    this.reverseHolofoil,
+    this.firstEditionNormal,
+    this.firstEditionHolofoil,
+    this.unlimited,
+    this.unlimitedHolofoil,
+  });
+
+  factory TcgplayerPrices.fromJson(Map<String, dynamic> json) =>
+      _$TcgplayerPricesFromJson(json);
+
+  Map<String, dynamic> toJson() => _$TcgplayerPricesToJson(this);
 }
 
 @embedded // Added @embedded

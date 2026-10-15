@@ -148,11 +148,17 @@ class EvolutionChainWidget extends StatelessWidget {
         message: detailText,
         child: Padding(
           padding: const EdgeInsets.all(4.0),
+          // CachedNetworkImage (not Image.network) so this item sprite is
+          // cached to disk like every other image in the app, instead of
+          // only the in-memory cache Image.network gets - that would have
+          // re-downloaded it on every app restart.
           child: imageAssetPath!.startsWith('http')
-              ? Image.network(
-            imageAssetPath,
+              ? CachedNetworkImage(
+            imageUrl: imageAssetPath,
             width: 30,
             height: 30,
+            placeholder: (context, url) => const SizedBox(width: 30, height: 30),
+            errorWidget: (context, url, error) => const Icon(Icons.error, size: 30),
           )
               : Image.asset(
             imageAssetPath,

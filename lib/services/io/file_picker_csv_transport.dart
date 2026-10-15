@@ -17,8 +17,8 @@ class FilePickerCsvTransport implements CsvTransport {
 
   @override
   Future<bool> save(String suggestedFileName, String csvContent) async {
-    final savedPath = await FilePicker.platform.saveFile(
-      dialogTitle: 'Save caught Pokémon as CSV',
+    final savedPath = await FilePicker.saveFile(
+      dialogTitle: 'Save caught Pokédex data as CSV',
       fileName: suggestedFileName,
       type: FileType.custom,
       allowedExtensions: ['csv'],
@@ -29,8 +29,8 @@ class FilePickerCsvTransport implements CsvTransport {
 
   @override
   Future<String?> load() async {
-    final result = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Import caught Pokémon CSV',
+    final result = await FilePicker.pickFiles(
+      dialogTitle: 'Import caught Pokédex data CSV',
       type: FileType.custom,
       allowedExtensions: ['csv'],
       withData: true,

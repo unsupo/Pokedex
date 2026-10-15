@@ -668,25 +668,19 @@ Pokemon _$PokemonFromJson(Map<String, dynamic> json) => Pokemon(
       ..details = json['details'] == null
           ? null
           : PokemonDetails.fromJson(json['details'] as Map<String, dynamic>)
-      ..userData = json['userData'] == null
-          ? null
-          : UserData.fromJson(json['userData'] as Map<String, dynamic>)
       ..evolutionChain = json['evolutionChain'] == null
           ? null
           : EvolutionChain.fromJson(
               json['evolutionChain'] as Map<String, dynamic>)
       ..species = json['species'] == null
           ? null
-          : PokemonSpecies.fromJson(json['species'] as Map<String, dynamic>)
-      ..isCaught = json['isCaught'] as bool;
+          : PokemonSpecies.fromJson(json['species'] as Map<String, dynamic>);
 
 Map<String, dynamic> _$PokemonToJson(Pokemon instance) => <String, dynamic>{
       'id': instance.id,
       'name': instance.name,
       'url': instance.url,
       'details': instance.details,
-      'userData': instance.userData,
       'evolutionChain': instance.evolutionChain,
       'species': instance.species,
-      'isCaught': instance.isCaught,
     };

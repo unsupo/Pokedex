@@ -8,5 +8,9 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<!-- file_picker needs read-write (not just read) on macOS: saveFile(), used
+	     by the combined CSV export, requires it, per the package's own docs. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
 </dict>
 </plist>

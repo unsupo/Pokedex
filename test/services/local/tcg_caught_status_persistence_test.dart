@@ -1,75 +1,32 @@
-import 'dart:ffi';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:isar_community/isar.dart';
-import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:pokedex_app/models/profile.dart';
 import 'package:pokedex_app/models/tcg_card.dart';
 import 'package:pokedex_app/services/local/isar_local_service.dart';
 import 'package:pokedex_app/services/local/local_service.dart';
+import 'package:pokedex_app/services/profile_provider.dart';
+import 'package:pokedex_app/services/profiles/local_service_profile_repository.dart';
 import 'package:pokedex_app/services/tcg_api_provider.dart';
 import 'package:pokedex_app/services/tcg_service.dart';
 
-/// `flutter test` runs as a plain Dart VM process with no bundled native
-/// libraries, so Isar's usual lookup (next to the app binary) fails. The
-/// exact libisar.dylib for the pinned isar_community_flutter_libs version
-/// already sits in the pub cache (it's what actually ships to devices) --
-/// point Isar at it directly instead of hitting the network to download one.
-Future<void> _initIsarCoreForTest() async {
-  final pubCacheDir = Platform.environment['PUB_CACHE'] ??
-      p.join(Platform.environment['HOME']!, '.pub-cache');
-  final libDir = Directory(
-    p.join(pubCacheDir, 'hosted', 'pub.dev'),
-  );
-  final flutterLibsDir = libDir.listSync().whereType<Directory>().firstWhere(
-      (d) => p.basename(d.path).startsWith('isar_community_flutter_libs-'));
+import '../../support/fakes.dart';
+import '../../support/isar_test_harness.dart';
 
-  final String platformDir;
-  final String libraryName;
-  if (Platform.isMacOS) {
-    platformDir = 'macos';
-    libraryName = 'libisar.dylib';
-  } else if (Platform.isLinux) {
-    platformDir = 'linux';
-    libraryName = 'libisar.so';
-  } else if (Platform.isWindows) {
-    platformDir = 'windows';
-    libraryName = 'isar.dll';
-  } else {
-    throw UnsupportedError(
-        'No bundled Isar core library known for ${Platform.operatingSystem}');
-  }
+/// TcgService's HTTP calls are never exercised here. Serves a fixed card list
+/// for any dex id, so a test can get cards into the provider's cache.
+class _StubTcgService implements TcgService {
+  _StubTcgService([this.cards = const []]);
 
-  final libraryPath = p.join(flutterLibsDir.path, platformDir, libraryName);
-  await Isar.initializeIsarCore(libraries: {Abi.current(): libraryPath});
-}
+  final List<TcgCard> cards;
 
-/// Redirects path_provider's getApplicationDocumentsDirectory() to a fresh
-/// temp directory, so IsarService.init() can open a real (short-lived) Isar
-/// instance during tests without touching a real device path.
-class _FakePathProviderPlatform extends PathProviderPlatform {
-  _FakePathProviderPlatform(this.path);
-
-  final String path;
-
-  @override
-  Future<String?> getApplicationDocumentsPath() async => path;
-}
-
-/// TcgService's HTTP calls are never exercised in these tests, but
-/// TcgApiProvider requires one to construct. TcgService being a pluggable
-/// interface (rather than a concrete class making real HTTP calls) is what
-/// makes this a trivial no-op instead of a subclass carrying real network
-/// plumbing it never uses.
-class _UnusedTcgService implements TcgService {
   @override
   Future<TcgCard?> getCard(String cardId) =>
       throw UnimplementedError('not exercised in these tests');
 
   @override
-  Future<List<TcgCard>> getCardsByNationalDexId(int nationalDexId) =>
-      throw UnimplementedError('not exercised in these tests');
+  Future<List<TcgCard>> getCardsByNationalDexId(int nationalDexId) async => cards;
 }
 
 void main() {
@@ -78,15 +35,10 @@ void main() {
   late Directory tempDir;
   late LocalService localService;
 
-  // A single Isar instance is opened once for the whole file (rather than
-  // per-test) because Isar refuses to re-open a second instance under the
-  // same name while one is still open, and this LocalService/IsarService
-  // pairing exposes no close()/dispose(). Each test below uses its own
-  // card id, so sharing the instance doesn't leak state between them.
   setUpAll(() async {
-    await _initIsarCoreForTest();
+    await initIsarCoreForTest();
     tempDir = await Directory.systemTemp.createTemp('isar_tcg_test_');
-    PathProviderPlatform.instance = _FakePathProviderPlatform(tempDir.path);
+    PathProviderPlatform.instance = FakePathProviderPlatform(tempDir.path);
     localService = await IsarService.create();
   });
 
@@ -94,74 +46,189 @@ void main() {
     await tempDir.delete(recursive: true);
   });
 
+  Future<int> newProfile(String name) =>
+      localService.saveProfile(Profile(name: name));
+
   group('CaughtTcgCard persistence (LocalService)', () {
-    test('save then get round-trips caught status for a TCG card id', () async {
-      expect(await localService.getCaughtTcgCard('swsh1-1'), isNull);
+    test('save then get round-trips caught status for a card in a profile',
+        () async {
+      final profile = await newProfile('tcg-roundtrip');
+      expect(await localService.getCaughtTcgCard(profile, 'swsh1-1'), isNull);
 
       await localService.saveCaughtTcgCard(
-        CaughtTcgCard(cardId: 'swsh1-1', isCaught: true),
+        CaughtTcgCard(profileId: profile, cardId: 'swsh1-1', isCaught: true),
       );
 
-      final reloaded = await localService.getCaughtTcgCard('swsh1-1');
+      final reloaded = await localService.getCaughtTcgCard(profile, 'swsh1-1');
       expect(reloaded, isNotNull);
       expect(reloaded!.isCaught, isTrue);
     });
 
-    test('saving the same cardId again upserts instead of duplicating',
-        () async {
+    test('saving the same card in the same profile again upserts', () async {
+      final profile = await newProfile('tcg-upsert');
       await localService.saveCaughtTcgCard(
-        CaughtTcgCard(cardId: 'base1-4', isCaught: true),
+        CaughtTcgCard(profileId: profile, cardId: 'base1-4', isCaught: true),
       );
       await localService.saveCaughtTcgCard(
-        CaughtTcgCard(cardId: 'base1-4', isCaught: false),
+        CaughtTcgCard(profileId: profile, cardId: 'base1-4', isCaught: false),
       );
 
-      final all = await localService.getAllCaughtTcgCards();
-      expect(all.where((c) => c.cardId == 'base1-4').length, 1);
-      expect((await localService.getCaughtTcgCard('base1-4'))!.isCaught,
+      final all = await localService.getCaughtTcgCardsForProfile(profile);
+      expect(all.where((c) => c.cardId == 'base1-4'), hasLength(1));
+      expect((await localService.getCaughtTcgCard(profile, 'base1-4'))!.isCaught,
           isFalse);
     });
 
-    test(
-        'caught status for a TCG card whose id string looks like a Pokemon '
-        'dex id does not corrupt unrelated dex ids (kept in a separate '
-        'collection from UserData)', () async {
-      // A card id that happens to render as "25" would, under the old
-      // (buggy) design, have been stored as UserData(id: 25, ...) --
-      // colliding with Pikachu's caught-Pokemon record. Proving this saves
-      // under its own collection, keyed by the string, is the regression
-      // check for that landmine.
+    test('a card id that looks like a Pokemon dex id does not touch Pokemon data',
+        () async {
+      // Card ids live in their own collection, keyed by string, so a card id
+      // of "25" cannot collide with Pikachu's caught-Pokemon record.
+      final profile = await newProfile('tcg-dexid-collision');
       await localService.saveCaughtTcgCard(
-        CaughtTcgCard(cardId: '25', isCaught: true),
+        CaughtTcgCard(profileId: profile, cardId: '25', isCaught: true),
       );
 
-      final pokemonUserData = await localService.getAllUserData();
-      expect(pokemonUserData, isEmpty);
-
-      final caughtTcgCard = await localService.getCaughtTcgCard('25');
-      expect(caughtTcgCard!.isCaught, isTrue);
+      expect(await localService.getCaughtPokemonForProfile(profile), isEmpty);
+      expect((await localService.getCaughtTcgCard(profile, '25'))!.isCaught,
+          isTrue);
     });
   });
 
-  group('TcgApiProvider.setCaught', () {
-    test('persists caught status so it survives a reload of the card list',
-        () async {
-      final provider = TcgApiProvider(_UnusedTcgService(), localService);
+  group('TcgApiProvider CSV export/import for cards', () {
+    late ProfileProvider profiles;
+    late int ash;
+    late int misty;
+
+    setUp(() async {
+      final stamp = DateTime.now().microsecondsSinceEpoch;
+      profiles = ProfileProvider(
+        LocalServiceProfileRepository(localService),
+        InMemoryActiveProfileStore(),
+      );
+      await profiles.load();
+      ash = (await profiles.createProfile('tcgcsv-ash-$stamp')).id;
+      misty = (await profiles.createProfile('tcgcsv-misty-$stamp')).id;
+      await profiles.setActive(ash);
+    });
+
+    test('export writes only the active profile\'s caught cards', () async {
+      final provider = TcgApiProvider(_StubTcgService(), localService, profiles);
+      final ashCard = TcgCard(id: 'csv-export-1', name: 'Pikachu V');
+      await provider.setCaught(ashCard);
+
+      await profiles.setActive(misty);
+      final mistyCard = TcgCard(id: 'csv-export-2', name: 'Charizard');
+      await provider.setCaught(mistyCard);
+      await profiles.setActive(ash);
+
+      final transport = InMemoryCsvTransport();
+      final result = await provider.exportCaughtCards(transport);
+
+      expect(result.exportedCount, 1);
+      expect(transport.storedCsv, contains('csv-export-1,true'));
+      expect(transport.storedCsv, isNot(contains('csv-export-2')));
+    });
+
+    test('import affects only the active profile', () async {
+      final provider = TcgApiProvider(_StubTcgService(), localService, profiles);
+      final ashCard = TcgCard(id: 'csv-import-1', name: 'Pikachu V');
+      await provider.setCaught(ashCard);
+      final transport = InMemoryCsvTransport();
+      await provider.exportCaughtCards(transport);
+
+      await profiles.setActive(misty);
+      await provider.importCaughtCards(transport);
+
+      final mistyReloaded = TcgCard(id: 'csv-import-1', name: 'Pikachu V');
+      await provider.loadCaughtStatus([mistyReloaded]);
+      expect(mistyReloaded.isCaught, isTrue);
+
+      await profiles.setActive(ash);
+      expect(ashCard.isCaught, isTrue,
+          reason: 'Ash\'s own caught card is untouched by the import into Misty');
+    });
+
+    test('a cancelled export changes nothing', () async {
+      final provider = TcgApiProvider(_StubTcgService(), localService, profiles);
+      final transport = InMemoryCsvTransport()..cancelSave = true;
+
+      final result = await provider.exportCaughtCards(transport);
+
+      expect(result.saved, isFalse);
+    });
+  });
+
+  group('TcgApiProvider per profile', () {
+    late ProfileProvider profiles;
+    late int ash;
+    late int misty;
+
+    setUp(() async {
+      final stamp = DateTime.now().microsecondsSinceEpoch;
+      profiles = ProfileProvider(
+        LocalServiceProfileRepository(localService),
+        InMemoryActiveProfileStore(),
+      );
+      await profiles.load();
+      ash = (await profiles.createProfile('tcgp-ash-$stamp')).id;
+      misty = (await profiles.createProfile('tcgp-misty-$stamp')).id;
+      await profiles.setActive(ash);
+    });
+
+    test('caught status survives a fresh provider (an app restart)', () async {
+      final provider = TcgApiProvider(_StubTcgService(), localService, profiles);
       final card = TcgCard(id: 'swsh1-1', name: 'Pikachu V');
-      expect(card.userData?.isCaught ?? false, isFalse);
 
       await provider.setCaught(card);
-      expect(card.userData?.isCaught, isTrue);
+      expect(card.isCaught, isTrue);
 
-      // Simulate a fresh app session: a brand-new TcgCard instance for the
-      // same card id, as would come back from a fresh API fetch after
-      // restart, should have its caught status loaded from disk.
       final reloadedCard = TcgCard(id: 'swsh1-1', name: 'Pikachu V');
       final freshProvider =
-          TcgApiProvider(_UnusedTcgService(), localService);
+          TcgApiProvider(_StubTcgService(), localService, profiles);
       await freshProvider.loadCaughtStatus([reloadedCard]);
 
-      expect(reloadedCard.userData?.isCaught, isTrue);
+      expect(reloadedCard.isCaught, isTrue);
+    });
+
+    test('a card caught in one profile is uncaught in another', () async {
+      final provider = TcgApiProvider(_StubTcgService(), localService, profiles);
+      final card = TcgCard(id: 'profile-iso-1', name: 'Pikachu V');
+      await provider.setCaught(card);
+
+      await profiles.setActive(misty);
+      final mistyCard = TcgCard(id: 'profile-iso-1', name: 'Pikachu V');
+      await provider.loadCaughtStatus([mistyCard]);
+
+      expect(mistyCard.isCaught, isFalse);
+    });
+
+    test('switching profile updates the caught state of cards already loaded',
+        () async {
+      final card = TcgCard(id: 'profile-switch-1', name: 'Pikachu V');
+      final provider = TcgApiProvider(
+          _StubTcgService([card]), localService, profiles);
+      final loaded = (await provider.getPokemonCards(25))!.single;
+      await provider.setCaught(loaded);
+      expect(loaded.isCaught, isTrue);
+
+      await profiles.setActive(misty);
+
+      await waitUntil(() => !loaded.isCaught);
+      expect(loaded.isCaught, isFalse);
+    });
+
+    test('resetting the active profile clears its loaded cards\' caught status',
+        () async {
+      final card = TcgCard(id: 'profile-reset-1', name: 'Pikachu V');
+      final provider = TcgApiProvider(
+          _StubTcgService([card]), localService, profiles);
+      final loaded = (await provider.getPokemonCards(4))!.single;
+      await provider.setCaught(loaded);
+      expect(loaded.isCaught, isTrue);
+
+      await profiles.resetProfile(ash);
+
+      await waitUntil(() => !loaded.isCaught);
     });
   });
 }

@@ -1,0 +1,391 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:pokedex_app/models/pokeapi/pokemon.dart';
+import 'package:pokedex_app/models/tcg_card.dart';
+import 'package:pokedex_app/services/binder_repository.dart';
+import 'package:pokedex_app/services/card_binder_provider.dart';
+import 'package:pokedex_app/services/game_catalog.dart';
+import 'package:pokedex_app/services/local/isar_local_service.dart';
+import 'package:pokedex_app/services/local/local_service.dart';
+import 'package:pokedex_app/services/pokemon_api_provider.dart';
+import 'package:pokedex_app/services/pokemon_service.dart';
+import 'package:pokedex_app/services/profile_provider.dart';
+import 'package:pokedex_app/services/profiles/local_service_profile_repository.dart';
+import 'package:pokedex_app/services/scope_provider.dart';
+import 'package:pokedex_app/services/tcg_api_provider.dart';
+import 'package:pokedex_app/services/tcg_card_repository.dart';
+import 'package:pokedex_app/services/tcg_service.dart';
+import 'package:pokedex_app/utils/binder/binder_pocket.dart';
+import 'package:pokedex_app/widgets/binder/card_picker_modal.dart';
+import 'package:provider/provider.dart';
+
+import '../../support/fakes.dart';
+import '../../support/isar_test_harness.dart';
+
+class _StubTcgService implements TcgService {
+  final Map<int, List<TcgCard>> cardsByPokemonId;
+
+  _StubTcgService([this.cardsByPokemonId = const {}]);
+
+  @override
+  Future<TcgCard?> getCard(String cardId) =>
+      throw UnimplementedError('not exercised in this test');
+
+  @override
+  Future<List<TcgCard>> getCardsByNationalDexId(int nationalDexId) async =>
+      cardsByPokemonId[nationalDexId] ?? [];
+}
+
+/// Throws the first time [getCardsByNationalDexId] is called for a given
+/// Pokemon id, then succeeds on every call after - simulates the real
+/// upstream 500/502 flakiness this API is documented to exhibit (see
+/// "Eleventh round" in docs/features/card-binder.md), without needing a
+/// real exhausted-retries wait.
+class _FlakyTcgService implements TcgService {
+  final Map<int, List<TcgCard>> cardsByPokemonId;
+  final Set<int> _failedOnce = {};
+
+  _FlakyTcgService({this.cardsByPokemonId = const {}});
+
+  @override
+  Future<TcgCard?> getCard(String cardId) =>
+      throw UnimplementedError('not exercised in this test');
+
+  @override
+  Future<List<TcgCard>> getCardsByNationalDexId(int nationalDexId) async {
+    if (_failedOnce.add(nationalDexId)) {
+      throw Exception('simulated transient upstream failure');
+    }
+    return cardsByPokemonId[nationalDexId] ?? [];
+  }
+}
+
+/// Serves Pokemon #25 and #50 (the ones used in these tests) so
+/// [toggleCardCaught] (called from the browse view) has a real
+/// PokemonApiProvider to mirror a newly-caught card onto.
+class _TwoPokemonService implements PokemonService {
+  @override
+  Future<List<Pokemon>> getPokemonList() async => [
+        Pokemon(id: 25, name: 'pikachu', url: ''),
+        Pokemon(id: 50, name: 'diglett', url: ''),
+      ];
+
+  @override
+  Future<List<int>> getVersionGroupIds() async => [];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
+      '${invocation.memberName} is offline in this test');
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  late Directory tempDir;
+  late LocalService localService;
+
+  setUpAll(() async {
+    await initIsarCoreForTest();
+    tempDir = await Directory.systemTemp.createTemp('card_picker_modal_test_');
+    PathProviderPlatform.instance = FakePathProviderPlatform(tempDir.path);
+    localService = await IsarService.create();
+  });
+
+  tearDownAll(() async {
+    await tempDir.delete(recursive: true);
+  });
+
+  late ProfileProvider profiles;
+  late PokemonApiProvider pokemonProvider;
+  late TcgApiProvider tcgProvider;
+  late CardBinderProvider binderProvider;
+
+  Future<void> settle(WidgetTester tester) async {
+    for (var i = 0; i < 80; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+  }
+
+  // Polls instead of guessing a fixed delay - see the extensive
+  // trial-and-error in pumpHarness below for why a fixed delay (however
+  // long, however many rounds) wasn't reliable once a real Isar I/O hop
+  // (the cache-first check added in "Fifteenth round") sat ahead of the
+  // network call on this screen's very first fetch. Each round nudges
+  // real async work forward (tester.runAsync) then lets the fake-async
+  // zone's widgets actually rebuild (settle), stopping as soon as
+  // [ready] is true rather than after a fixed, possibly-too-short or
+  // wastefully-long wait.
+  Future<void> pollUntil(WidgetTester tester, bool Function() ready,
+      {int maxRounds = 10}) async {
+    for (var i = 0; i < maxRounds; i++) {
+      if (ready()) return;
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 300)));
+      await settle(tester);
+    }
+  }
+
+  Future<void> pumpHarness(WidgetTester tester,
+      {required int pokemonId, required bool startInBrowse}) async {
+    await tester.pumpWidget(MultiProvider(
+      providers: [
+        ChangeNotifierProvider<PokemonApiProvider>.value(
+            value: pokemonProvider),
+        ChangeNotifierProvider<TcgApiProvider>.value(value: tcgProvider),
+        ChangeNotifierProvider<CardBinderProvider>.value(value: binderProvider),
+      ],
+      child: MaterialApp(
+        home: Scaffold(
+          body: Builder(builder: (context) {
+            return ElevatedButton(
+              key: const Key('open-modal'),
+              onPressed: () => showCardPickerModal(context,
+                  pokemonId: pokemonId, startInBrowse: startInBrowse),
+              child: const Text('open'),
+            );
+          }),
+        ),
+      ),
+    ));
+    await settle(tester);
+    // The tap itself happens *inside* the runAsync block, not before it -
+    // matches the file's own proven-necessary pattern for its retry
+    // button below. Real Isar I/O never resolves inside flutter_test's
+    // fake-async zone (a long-documented limitation of this test binary -
+    // see test/widgets/scope/card_caught_toggle_test.dart) - as of
+    // "Fifteenth round" in docs/features/card-binder.md, the very first
+    // fetch can hit real Isar I/O too
+    // (DefaultTcgCardRepository.getCardsByNationalDexId now checks the
+    // local cache before the network, not just a Pokemon whose cards
+    // were already pre-fetched in setUp) - tapping outside/before the
+    // runAsync block (tried first) left the fetch permanently stuck
+    // (never even reaching the underlying service, let alone failing or
+    // succeeding) no matter how many delay/settle rounds followed.
+    // Deliberately no direct `tcgProvider.getPokemonCards(...)` call the
+    // way the retry button below additionally does after its own tap:
+    // calling that here, before a test has had any chance to observe a
+    // first failure, would itself count as a second attempt and silently
+    // consume it (TcgApiProvider.getPokemonCards has no cached result to
+    // short-circuit on yet, so it genuinely re-fetches). A single fixed
+    // delay (tried at 300ms, 1000ms, and two sequential 1000ms rounds)
+    // was never reliable, so this polls instead, stopping as soon as the
+    // modal's loading spinner is gone - a state-agnostic signal that
+    // works whether the fetch is about to show success or failure.
+    await tester
+        .runAsync(() => tester.tap(find.byKey(const Key('open-modal'))));
+    await settle(tester);
+    await pollUntil(tester,
+        () => find.byType(CircularProgressIndicator).evaluate().isEmpty);
+  }
+
+  setUp(() async {
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    profiles = ProfileProvider(
+      LocalServiceProfileRepository(localService),
+      InMemoryActiveProfileStore(),
+    );
+    await profiles.load();
+    await profiles.createProfile('picker-modal-$stamp');
+
+    final scopes = ScopeProvider(profiles, InMemoryScopeStore());
+    await scopes.load();
+    final pokemonService = _TwoPokemonService();
+    pokemonProvider = PokemonApiProvider(
+      pokemonService,
+      localService,
+      profiles,
+      scopes,
+      GameCatalog(pokemonService),
+    );
+    await pokemonProvider.fetchData();
+
+    final ownedCard = TcgCard(
+        id: 'picker-modal-card-1',
+        name: 'Pikachu V',
+        nationalPokedexNumbers: const [25],
+        tcgplayer: Tcgplayer(
+            prices: TcgplayerPrices(holofoil: PriceData(market: 12.5))));
+    final uncaughtCard = TcgCard(
+        id: 'picker-modal-card-2',
+        name: 'Bulbasaur',
+        nationalPokedexNumbers: const [50],
+        tcgplayer:
+            Tcgplayer(prices: TcgplayerPrices(holofoil: PriceData(market: 3))));
+    tcgProvider = TcgApiProvider(
+      _StubTcgService({
+        25: [ownedCard],
+        50: [uncaughtCard]
+      }),
+      localService,
+      profiles,
+    );
+    final loaded = (await tcgProvider.getPokemonCards(25))!;
+    await tcgProvider.setCaught(loaded.single);
+    // Pre-fetched (but left uncaught) so the modal's own getPokemonCards(50)
+    // call in AC9 hits TcgApiProvider's in-memory cache instead of doing a
+    // fresh Isar write-through cache *during* the tap that opens the modal -
+    // avoids a real-I/O-timing race in that one test.
+    await tcgProvider.getPokemonCards(50);
+
+    binderProvider = CardBinderProvider(
+      LocalServiceBinderRepository(localService,
+          DefaultTcgCardRepository(_StubTcgService(), localService)),
+      profiles,
+    );
+    await binderProvider.load();
+  });
+
+  testWidgets(
+      'AC7: starting in cycle mode shows the picker, not the browse grid',
+      (tester) async {
+    await pumpHarness(tester, pokemonId: 25, startInBrowse: false);
+
+    expect(find.text('Choose which card to display'), findsOneWidget);
+    expect(find.text('All cards - tap to catch or remove'), findsNothing);
+  });
+
+  testWidgets('AC8: starting in browse mode skips straight to the full grid',
+      (tester) async {
+    await pumpHarness(tester, pokemonId: 25, startInBrowse: true);
+
+    expect(find.text('All cards - tap to catch or remove'), findsOneWidget);
+    expect(find.text('Choose which card to display'), findsNothing);
+  });
+
+  testWidgets(
+      'AC10: confirming the cycle picker persists the selection and closes the modal',
+      (tester) async {
+    await pumpHarness(tester, pokemonId: 25, startInBrowse: false);
+
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('binder-confirm-selection')));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await settle(tester);
+
+    expect(find.text('Choose which card to display'), findsNothing);
+    expect(
+        binderProvider
+            .pocketFor(25, pokemonCaught: false)
+            .runtimeType
+            .toString(),
+        'SelectedPocket');
+  });
+
+  testWidgets(
+      'AC9: catching a card through the browse view\'s + makes it '
+      'immediately available in the cycle picker, without closing and '
+      'reopening the modal', (tester) async {
+    // Pokemon #50 starts with nothing owned (state 3/empty), so the modal
+    // opens straight to the browse view - exactly like _onPocketTapped
+    // decides for an EmptyPocket.
+    await pumpHarness(tester, pokemonId: 50, startInBrowse: true);
+    expect(find.text('All cards - tap to catch or remove'), findsOneWidget);
+
+    await tester.runAsync(() async {
+      await tester
+          .tap(find.byKey(const Key('binder-browse-card-picker-modal-card-2')));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await settle(tester);
+
+    // Still the same modal session - now able to go back to the cycle view.
+    await tester.tap(find.byKey(const Key('binder-browse-back')));
+    await settle(tester);
+
+    expect(find.text('Choose which card to display'), findsOneWidget);
+    expect(find.byKey(const Key('binder-confirm-selection')), findsOneWidget);
+  });
+
+  testWidgets(
+      "AC25: catching a Pokemon's first card from the browse view also "
+      "makes it the binder's displayed card immediately, without a "
+      'separate confirm step', (tester) async {
+    // Same starting point as AC9 above - Pokemon #50, nothing owned yet.
+    await pumpHarness(tester, pokemonId: 50, startInBrowse: true);
+
+    await tester.runAsync(() async {
+      await tester
+          .tap(find.byKey(const Key('binder-browse-card-picker-modal-card-2')));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await settle(tester);
+
+    final view = binderProvider.pocketFor(50, pokemonCaught: false);
+    expect(view, isA<SelectedPocket>());
+    expect((view as SelectedPocket).card.id, 'picker-modal-card-2');
+  });
+
+  testWidgets(
+      'Eleventh round: a failed fetch shows a retry option, not "no cards '
+      'found" - and retrying actually re-fetches, not a replayed failure',
+      (tester) async {
+    tcgProvider = TcgApiProvider(
+      _FlakyTcgService(cardsByPokemonId: {
+        99: [
+          TcgCard(
+              id: 'flaky-card', name: 'Mew', nationalPokedexNumbers: const [99])
+        ],
+      }),
+      localService,
+      profiles,
+    );
+
+    await pumpHarness(tester, pokemonId: 99, startInBrowse: true);
+
+    expect(find.text('Failed to load cards.'), findsOneWidget);
+    expect(find.text('No cards found for this Pokemon'), findsNothing);
+    expect(find.text('All cards - tap to catch or remove'), findsNothing);
+
+    // The successful retry's own loadCaughtStatus/cacheCards do real Isar
+    // reads *and* a write (saveAllTcgCards) - like every other genuine-I/O
+    // step in this file, that needs runAsync to resolve within the test's
+    // fake-async zone. A bare tap-then-delay runAsync block here, even
+    // with a full second of real waiting, consistently left the widget's
+    // own `_cardsFuture` stuck mid-flight (confirmed: TcgApiProvider's
+    // cache already had the successful result by then, so the fetch
+    // itself wasn't slow - the widget's fire-and-forget
+    // `Future.microtask(...)`-wrapped call just never got to actually
+    // finish once this runAsync block returned control to the fake zone).
+    // Directly awaiting the same provider call again here - a real zone
+    // continuation, not a fixed delay - is what actually lets that
+    // stuck work complete; it resolves to the same cached result either
+    // way, from TcgApiProvider's own id-keyed cache.
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const Key('binder-card-fetch-retry')));
+      await Future<void>.delayed(const Duration(milliseconds: 1000));
+    });
+    await settle(tester);
+    // A second real-zone continuation (confirmed necessary, not cargo-
+    // culted: a single runAsync block above, even with a full second of
+    // real waiting plus this same direct call folded in, consistently
+    // left the widget's own `_cardsFuture` stuck mid-flight) is what
+    // actually lets that stuck work complete - resolves to the same
+    // cached result either way, from TcgApiProvider's own id-keyed cache.
+    await tester.runAsync(() => tcgProvider.getPokemonCards(99));
+    await settle(tester);
+
+    expect(find.text('All cards - tap to catch or remove'), findsOneWidget);
+    expect(
+        find.byKey(const Key('binder-browse-card-flaky-card')), findsOneWidget);
+  });
+
+  testWidgets(
+      'Fourteenth round: a small price overlay shows on the cycle view\'s '
+      r"card ($12.50, set up above)", (tester) async {
+    await pumpHarness(tester, pokemonId: 25, startInBrowse: false);
+
+    expect(find.text(r'$12.50'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Fourteenth round: a small price overlay shows on the browse grid\'s '
+      r'cards ($3.00, set up above)', (tester) async {
+    await pumpHarness(tester, pokemonId: 50, startInBrowse: true);
+
+    expect(find.text(r'$3.00'), findsOneWidget);
+  });
+}
